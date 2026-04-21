@@ -1,0 +1,80 @@
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from color import service
+from color.schemas.request import AddStockRequest, CreateColorRequest, UpdateColorRequest
+from color.schemas.response import (
+    AddStockResponse,
+    ColorListResponse,
+    PhysicalColorResponse,
+    ShortageDashboardResponse,
+)
+from core.database import get_db
+from dependencies.auth import require_admin
+
+router = APIRouter(tags=["Admin - Colors"])
+
+
+@router.get("/admin/colors", response_model=ColorListResponse)
+async def list_colors(
+    color_family: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
+    search: str | None = Query(default=None),
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    items = await service.list_colors(db, color_family, is_active, search)
+    return ColorListResponse(items=items)
+
+
+@router.get("/admin/colors/shortage-dashboard", response_model=ShortageDashboardResponse)
+async def shortage_dashboard(
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    items = await service.shortage_dashboard(db)
+    return ShortageDashboardResponse(items=items)
+
+
+@router.post("/admin/colors", response_model=PhysicalColorResponse, status_code=201)
+async def create_color(
+    body: CreateColorRequest,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    data = body.model_dump()
+    data["rgb"] = body.rgb.model_dump()
+    return await service.create_color(db, data)
+
+
+@router.put("/admin/colors/{color_id}", response_model=PhysicalColorResponse)
+async def update_color(
+    color_id: UUID,
+    body: UpdateColorRequest,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    data = body.model_dump()
+    data["rgb"] = body.rgb.model_dump()
+    return await service.update_color(db, color_id, data)
+
+
+@router.patch("/admin/colors/{color_id}/toggle-active", response_model=PhysicalColorResponse)
+async def toggle_active(
+    color_id: UUID,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.toggle_active(db, color_id)
+
+
+@router.patch("/admin/colors/{color_id}/stock", response_model=AddStockResponse)
+async def add_stock(
+    color_id: UUID,
+    body: AddStockRequest,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.add_stock(db, color_id, body.add_ml)
