@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 import auth.models  # noqa: F401
+import color.models  # noqa: F401
+import palette.models  # noqa: F401
+import production.models  # noqa: F401
 import users.models  # noqa: F401
 from core.config import settings
 from core.database import Base, get_db
@@ -31,7 +34,7 @@ def setup_db():
 
 
 @pytest_asyncio.fixture
-async def db():
+async def db(setup_db):
     engine = create_async_engine(DB_URL, poolclass=NullPool)
     conn = await engine.connect()
     for table in reversed(Base.metadata.sorted_tables):

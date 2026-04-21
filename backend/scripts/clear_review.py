@@ -8,7 +8,7 @@ Usage:
 
 Exit codes:
   0 = pass (lock cleared, Claude can continue)
-  1 = fail (lock remains, Claude must fix issues first)
+  1 = fail (lock cleared so Claude can fix issues, quality_check.py will re-lock after next run)
 """
 import sys
 from datetime import datetime
@@ -43,7 +43,8 @@ def main() -> None:
         print(f"Record saved: {record_path.name}")
         sys.exit(0)
     else:
-        print("Review FAILED — lock remains.")
+        MARKER.unlink(missing_ok=True)
+        print("Review FAILED — lock cleared so you can fix issues.")
         print(f"Issues: {summary}")
         print("Fix the above issues, re-run quality_check.py, then /reviewer again.")
         print(f"Record saved: {record_path.name}")

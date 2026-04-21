@@ -50,6 +50,10 @@ dist/
 # Logs
 *.log
 
+# Firebase Service Account (NEVER commit)
+*firebase-adminsdk*.json
+*service-account*.json
+
 # Database
 *.db
 *.sqlite3

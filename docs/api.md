@@ -487,7 +487,19 @@ Response 200: { "mask_url": "string", "mask_coverage": 0.42 }
 
 ```json
 Request:  { "notes": "string|null" }
+Response 200: JobDetailResponse（approved=true, approved_at 已設定）
 ```
+
+> 只有 status=completed 才可核准；重複呼叫 idempotent（200）
+
+### POST /admin/production/jobs/{id}/unapprove
+**權限**：admin｜撤銷核准（approved=false）
+
+```json
+Response 200: JobDetailResponse（approved=false, approved_at=null）
+```
+
+> 重複呼叫 idempotent（200）
 
 ### GET /admin/production/jobs/{id}/export-pdf
 **權限**：admin｜即時產生 PDF（SVG → Inkscape 轉換），直接回傳二進位下載
