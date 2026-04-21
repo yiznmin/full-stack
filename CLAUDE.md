@@ -143,9 +143,22 @@ quality_check.py 包含四道閘門：
 - 「我有沒有為了讓測試通過而簡化邏輯？」
 - 「哪一行我自己最不確定？為什麼？」
 
+### 模組完成後：自動 git commit
+
+reviewer 呼叫 `clear_review.py pass` 後，立即執行 git commit，格式：
+
+```
+feat(<module>): 完成 Module XX - <模組名稱>（N tests passing）
+```
+
+例如：`feat(palette): 完成 Module 06 - 調色板對應（36 tests passing）`
+
+不需等使用者指示，自動執行。
+
 ### 禁止行為
 - 寫完說「完成」但沒跑 quality gates
 - 測試有 FAILED 卻繼續下一個功能
 - 只測 happy path，忽略錯誤情境
 - 自行決定跳過任何品質檢查
 - 沒呼叫 `/reviewer` 就宣告模組完成
+- reviewer pass 後忘記 git commit
