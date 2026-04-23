@@ -115,6 +115,8 @@
 | created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 建立時間 |
 | updated_at | TIMESTAMP | NOT NULL, DEFAULT now() | 最後更新時間 |
 
+> **series_order 規則**：若 `series_id IS NOT NULL` 則 `series_order` 必填（後端驗證，資料庫層允許 nullable 以支援 series_id 為 null 的情境）。
+
 ---
 
 ### product_images
@@ -179,7 +181,7 @@
 |------|------|------|------|
 | id | UUID | PK | 主鍵 |
 | uploader_id | UUID | NOT NULL, FK → users.id | 上傳的管理員 |
-| original_url | VARCHAR | NOT NULL | Firebase Storage 原始圖片路徑（公開） |
+| original_url | VARCHAR | NOT NULL | Firebase Storage 原始圖片路徑（**私有**，後端以簽名 URL 提供存取） |
 | filename | VARCHAR | NOT NULL | 原始檔名 |
 | width | INTEGER | NOT NULL | 圖片寬度（px） |
 | height | INTEGER | NOT NULL | 圖片高度（px） |
@@ -197,7 +199,7 @@
 | id | UUID | PK | 主鍵 |
 | image_id | UUID | nullable, FK → images.id | 管理員手動上傳時填入；從客製申請帶入照片時為 null |
 | custom_request_id | UUID | nullable, FK → custom_requests.id | 從客製申請帶入時關聯 |
-| status | ENUM('pending','processing','completed','failed') | NOT NULL, DEFAULT 'pending' | 處理狀態 |
+| status | ENUM('pending','processing','completed','failed','cancelled') | NOT NULL, DEFAULT 'pending' | 處理狀態 |
 | approved | BOOLEAN | NOT NULL, DEFAULT false | 管理員審核通過（completed + approved=true 才可進入顏色對應） |
 | detail | ENUM('rough','standard','detailed','premium') | NOT NULL | 細緻度 |
 | difficulty | ENUM('beginner','elementary','intermediate','advanced') | NOT NULL | 難易度 |
@@ -214,7 +216,7 @@
 | bg_extra_blur | INTEGER | nullable | 覆蓋值 |
 | min_brush_diam_cm | NUMERIC(4,2) | NOT NULL, DEFAULT 1.0 | 最小筆觸直徑（cm） |
 | extra_colors | INTEGER | nullable | sam_refine 額外色數 |
-| weight_ratio | NUMERIC(4,2) | nullable | sam_weighted 比重（0.5~0.8） |
+| weight_ratio | NUMERIC(4,2) | nullable, DEFAULT 0.65（僅 sam_weighted 模式使用）| sam_weighted 比重（0.5~0.8），未填時使用預設 0.65 |
 | sam_points | JSONB | nullable | SAM 前景/背景點 [{x,y,label}] |
 | polygons | JSONB | nullable | 多邊形頂點 [[[x,y],...]] |
 | mask_url | VARCHAR | nullable | Firebase Storage 遮罩 PNG 路徑（私有） |
@@ -243,7 +245,7 @@
 | name | VARCHAR | NOT NULL | 顏色名稱（如 `SKIN TONE`） |
 | color_family | VARCHAR | nullable | 色系（如紅系、膚色系，供篩選） |
 | brand | VARCHAR | nullable | 品牌 / 來源（之後補充） |
-| rgb | JSONB | NOT NULL | RGB 近似值，格式：`{"rgb_r": 255, "rgb_g": 165, "rgb_b": 0}`（用於 LAB 距離自動對應） |
+| rgb | JSONB | NOT NULL | RGB 近似值，格式為陣列 `[R, G, B]`，例如 `[255, 165, 0]`（用於 LAB 距離自動對應） |
 | stock_ml | NUMERIC(10,2) | NOT NULL, DEFAULT 0 | 庫存量（單位：ml） |
 | is_active | BOOLEAN | NOT NULL, DEFAULT true | 是否啟用（停用後視同庫存為 0） |
 | created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 建立時間 |
@@ -258,7 +260,7 @@
 | id | UUID | PK | 主鍵 |
 | production_job_id | UUID | NOT NULL, FK → production_jobs.id | 關聯的製作記錄 |
 | template_id | INTEGER | NOT NULL | 調色盤色號（1, 2, 3...，對應 palette_json 中的 template_id） |
-| algorithm_rgb | INTEGER[3] | NOT NULL | 演算法產出的 RGB |
+| algorithm_rgb | JSONB | NOT NULL | 演算法產出的 RGB，陣列格式 `[R, G, B]`，與 production_jobs.palette_json 裡各 color 的 rgb 格式一致 |
 | physical_color_id | UUID | NOT NULL, FK → physical_colors.id | 對應的實體色 |
 | required_ml | NUMERIC(8,4) | nullable | 此規格每套所需顏料量（對應完成後計算儲存） |
 | mapped_by | ENUM('system','manual') | NOT NULL, DEFAULT 'system' | 人工指定 / 系統預設 |
@@ -294,7 +296,7 @@
 | 欄位 | 型別 | 限制 | 說明 |
 |------|------|------|------|
 | id | UUID | PK | 主鍵 |
-| order_number | VARCHAR | NOT NULL, UNIQUE | 訂單編號（PL-YYYYMMDD-XXXXXX，PostgreSQL SEQUENCE 全域遞增） |
+| order_number | VARCHAR | NOT NULL, UNIQUE | 訂單編號（`PL-YYYYMMDD-XXXXXX`，PostgreSQL SEQUENCE 全域遞增）；**超過 999999 時自動擴展為 7 位**（`PL-YYYYMMDD-XXXXXXX`），前端 parser 不 hardcode 位數 |
 | user_id | UUID | NOT NULL, FK → users.id | 下單用戶 |
 | status | ENUM('pending_payment','payment_expired','paid','processing','shipped','completed','cancelled','refund_processing','refunded','partially_refunded') | NOT NULL, DEFAULT 'pending_payment' | 訂單狀態 |
 | subtotal | NUMERIC(10,2) | NOT NULL | 商品總價 |
@@ -307,12 +309,14 @@
 | shipping_type | ENUM('home','seven_eleven','family_mart') | NOT NULL | 取貨方式 |
 | shipping_preference | ENUM('together','separate') | nullable | 含預購項目時的出貨偏好 |
 | shipping_snapshot | JSONB | NOT NULL | 收件資料快照，結構：`{"recipient_name","phone","notify_email","city","district","address_detail","store_id","store_name"}`（宅配時 city/district/address_detail 有值，store_id/store_name 為 null；超商反之。notify_email 為 null 時出貨改用 users.email）|
-| payment_deadline | TIMESTAMP | nullable | 付款期限（建立時 +24h）；管理員 flag 付款核對表單時重設為 now()+24h |
+| payment_deadline | TIMESTAMP | nullable | 付款期限。初始值 created_at + 24h；flag 時重設為 MIN(now()+24h, created_at + payment_absolute_deadline_hours)；絕對上限不可延超過 created_at + 48h（預設值，可在 system_settings 調整）|
 | paid_at | TIMESTAMP | nullable | 付款確認時間 |
 | completed_at | TIMESTAMP | nullable | 訂單完成時間 |
-| cancel_reason | TEXT | nullable | 取消原因（僅用於 status='cancelled'，區分客戶取消 vs 管理員取消，可附自由說明文字） |
+| cancel_reason_code | ENUM('payment_expired','customer_cancelled','admin_cancelled') | nullable | 取消原因分類；僅 status='cancelled' 時有值 |
+| cancel_reason_note | TEXT | nullable | 取消原因自由說明（管理員取消時建議填寫，逾期或客戶取消通常為 null）|
 | refund_amount | NUMERIC(10,2) | nullable | 退款金額（退款時填入，支援部分退款） |
 | refunded_at | TIMESTAMP | nullable | 退款完成時間 |
+| refund_confirmed_at | TIMESTAMP | nullable | 客戶確認已收到退款的時間(管理員按退款後,客戶需手動確認;僅紀錄用,不影響訂單狀態流程)|
 | customer_notes | TEXT | nullable | 客戶備注 |
 | admin_notes | TEXT | nullable | 管理者備注（客戶不可見） |
 | created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 下單時間 |
@@ -321,7 +325,11 @@
 > 訂單編號格式：日期為建立當天，流水號不跨日歸零，永遠遞增（例如當日第一筆可能為 PL-20260418-000312）。
 > 客製訂單透過 custom_requests 流程建立，不走購物車；由 order_items.custom_request_id 非 null 識別。
 > **庫存扣減**：訂單建立（pending_payment）時立即以 SELECT FOR UPDATE 扣減 stock_ml；付款確認（paid）不再扣；payment_expired / cancelled / refunded 時回補。
-> **Coupon 回補**：訂單達到 `refunded` 時才回補，`refund_processing` 期間 coupon 維持「已使用」。
+> **Coupon 回補**：
+> - `refund_processing` 期間 coupon 維持「已使用」，不回補
+> - 訂單達到 `refunded`（全額退款）→ coupon 完整回補（is_used=false）、public_code 的 total_used -1
+> - 訂單達到 `partially_refunded`（部分退款）→ coupon **不回補**（訂單仍有部分成立）
+> - 回饋券（source_order_id）撤銷邏輯依「剩餘金額是否仍達發券門檻」判斷，見 admin_discount.md §4.8
 
 ---
 
@@ -340,8 +348,9 @@
 | created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 建立時間 |
 
 > 合併出貨只有一筆記錄；選「分開出貨」時現貨與預購各建一筆。
-> 所有 shipments 均 delivered 後自動將 order.status 改為 completed。
-> 分開出貨：第一筆已 shipped、第二筆尚未 → order.status 維持 processing；全部 shipped → order.status 改為 shipped。
+> **order.status 聚合規則（動作導向，見 admin_orders.md §5.10 詳表）：**
+> - 訂單底下至少一筆 shipments.status ∈ {shipped, delivered} → order.status = shipped
+> - 訂單底下所有 shipments.status = delivered → order.status = completed
 
 ---
 
@@ -353,13 +362,14 @@
 | order_id | UUID | NOT NULL, FK → orders.id | 所屬訂單 |
 | product_variant_id | UUID | nullable, FK → product_variants.id | 商品變體（客製訂單為 null） |
 | custom_request_id | UUID | nullable, FK → custom_requests.id | 客製申請（一般目錄商品為 null） |
-| production_job_id | UUID | nullable, FK → production_jobs.id | 製作完成後填入（production_job.approved 時自動寫入） |
+| production_job_id | UUID | nullable, FK → production_jobs.id | 對應的製作任務（客製訂單在 quote_confirmed 建立 order_items 時從 custom_request 反查寫入；目錄訂單為 null） |
 | product_title_snapshot | VARCHAR | NOT NULL | 下單時商品名稱快照 |
 | variant_spec_snapshot | JSONB | NOT NULL | 下單時規格快照（尺寸、難易度、細緻度等） |
 | unit_price | NUMERIC(10,2) | NOT NULL | 下單時單價快照 |
 | quantity | INTEGER | NOT NULL | 購買總數量 |
 | fulfilled_qty | INTEGER | NOT NULL, DEFAULT 0 | 現貨數量（下單時庫存足夠的部分） |
 | preorder_qty | INTEGER | NOT NULL, DEFAULT 0 | 預購數量（庫存不足需等待的部分） |
+| is_returned | BOOLEAN | NOT NULL, DEFAULT false | 此項目是否退回（僅部分退款時使用）|
 
 > 客製訂單：fulfilled_qty=0、preorder_qty=1，全部算預購。
 
@@ -391,18 +401,19 @@
 | id | UUID | PK | 主鍵 |
 | user_id | UUID | NOT NULL, FK → users.id | 申請用戶 |
 | request_type | ENUM('custom_photo','custom_spec') | NOT NULL | 申請類型 |
-| status | ENUM('quote_pending','negotiating','quote_sent','quote_confirmed','quote_rejected','quote_expired') | NOT NULL, DEFAULT 'quote_pending' | 申請狀態 |
+| status | ENUM('quote_pending','negotiating','quote_sent','draft_revision','quote_confirmed','quote_rejected','quote_expired') | NOT NULL, DEFAULT 'quote_pending' | 申請狀態 |
 | photo_url | VARCHAR | nullable | 客戶上傳照片（Firebase Storage，私有；custom_photo 用） |
-| ref_product_id | UUID | nullable, FK → products.id | 參考商品（custom_spec 用） |
+| ref_product_id | UUID | nullable, FK → products.id | 參考商品；**custom_spec 時必填**，custom_photo 時為 null |
 | canvas_w_cm | INTEGER | nullable | 畫布寬度偏好（custom_photo 選填） |
 | canvas_h_cm | INTEGER | nullable | 畫布高度偏好（custom_photo 選填） |
 | difficulty | ENUM('beginner','elementary','intermediate','advanced') | nullable | 難易度偏好（null=讓管理員建議） |
-| detail | ENUM('rough','standard','detailed','premium') | nullable | 細緻度偏好（null=讓管理員建議） |
+| detail | ENUM('rough','standard','detailed','premium') | nullable | 細緻度偏好。custom_spec 必填、custom_photo 不開放客戶填（由管理員於報價階段決定）；custom_spec 可選「讓管理員建議」時存 null |
 | customer_notes | TEXT | nullable | 客戶備注 |
 | quoted_price | NUMERIC(10,2) | nullable | 管理員填入的報價金額 |
 | quote_token | VARCHAR | nullable, UNIQUE | 報價確認信安全 token（hashed，用於 /custom/quote/:token 連結驗證） |
 | quote_expires_at | TIMESTAMP | nullable | 報價有效期限（送出後 +1 天） |
 | is_extended | BOOLEAN | NOT NULL, DEFAULT false | 客戶是否已使用延長一次 |
+| revision_count | INTEGER | NOT NULL, DEFAULT 0 | 客戶已要求修改的次數，上限 3 |
 | parent_request_id | UUID | nullable, FK → custom_requests.id | 重新申請時指向原始申請 |
 | order_id | UUID | nullable, FK → orders.id | 客戶確認報價後建立的訂單 |
 | admin_notes | TEXT | nullable | 管理員內部備注 |
@@ -565,6 +576,7 @@
 |------|----------------|---------|
 | `quote_pending` | true | 客戶提交客製申請 |
 | `custom_order_paid` | true | 客製訂單狀態變為 paid |
+| `draft_revision_requested` | true | 客戶要求修改初稿 |
 | `new_message` | true | 客戶傳訊息（管理員不在頁面） |
 | `payment_submitted` | true | 客戶填寫付款核對表單 |
 | `payment_resubmitted` | true | 客戶重新填寫付款表單 |
@@ -574,6 +586,9 @@
 | `quote_confirmed` | false | 客戶確認報價 |
 | `quote_rejected` | false | 客戶拒絕報價 |
 | `ecpay_status` | false | ECpay Webhook 物流狀態更新 |
+| `production_failed` | true | production_job 失敗 |
+| `batch_completed` | true | production 批次全部處理完畢 |
+| `order_completed_by_customer` | false | 客戶主動點確認收貨 |
 
 > 新通知即時推送至所有有活躍 SSE 連線的 admin（Railway heartbeat 每 30 秒）。
 > payment_resubmitted 建立時，自動將同訂單的 payment_submitted 通知標記為 completed。
@@ -619,6 +634,8 @@
 | paint_ml_per_cm2 | 每 cm² 所需顏料 ml（預設 0.05） |
 | paint_min_ml | 每色最低配給 ml（預設 3） |
 | paint_buffer_ratio | 顏料緩衝倍數（預設 1.3） |
+| custom_photo_price_multiplier | 客製照片服務費率，預設 2.0 |
+| payment_absolute_deadline_hours | 訂單付款絕對期限（小時），預設 48 |
 
 ---
 
@@ -646,6 +663,24 @@
 | amount | NUMERIC(10,2) | NOT NULL | 加費金額 |
 | is_active | BOOLEAN | NOT NULL, DEFAULT true | 是否在報價時顯示 |
 | created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 建立時間 |
+
+---
+
+### canvas_sizes
+
+| 欄位 | 型別 | 限制 | 說明 |
+|------|------|------|------|
+| id | UUID | PK | 主鍵 |
+| canvas_w_cm | INTEGER | NOT NULL | 畫布寬度（cm） |
+| canvas_h_cm | INTEGER | NOT NULL | 畫布高度（cm） |
+| display_name | VARCHAR | NOT NULL | 顯示名稱（例如「30×40 cm」） |
+| sort_order | INTEGER | NOT NULL, DEFAULT 0 | 排列順序 |
+| is_active | BOOLEAN | NOT NULL, DEFAULT true | 是否開放選用 |
+| created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 建立時間 |
+
+> UNIQUE(canvas_w_cm, canvas_h_cm)
+> **初始資料**：依 pricing_formula.md 的 17 種標準尺寸（20×20 / 30×30 / 30×40 / 40×30 / 30×50 / 40×40 / 50×30 / 30×60 / 40×50 / 50×40 / 40×60 / 60×40 / 50×50 / 50×60 / 60×50 / 60×60 等共 17 筆）
+> **停用**：is_active=false 後該尺寸不在新商品/客製表單中出現，但不影響已建立的 production_jobs 和 orders
 
 ---
 

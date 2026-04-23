@@ -238,6 +238,134 @@ async def test_reset_password_invalid_token(client: AsyncClient, db):
 # ── Admin Login ────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
+async def test_verify_email_change_expired_token(client: AsyncClient, db):
+    import secrets
+    from datetime import datetime, timedelta
+    user = await _register_and_verify(client, db)
+    user.pending_email = "changed@example.com"
+    await db.commit()
+
+    plain = secrets.token_urlsafe(32)
+    from auth.models import TokenTypeEnum
+    token = EmailVerificationToken(
+        user_id=user.id,
+        token=_hash_token(plain),
+        token_type=TokenTypeEnum.email_change,
+        expires_at=datetime.now(UTC) - timedelta(seconds=1),
+    )
+    db.add(token)
+    await db.commit()
+
+    res = await client.post(VERIFY_URL, json={"token": plain})
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_verify_email_change_success(client: AsyncClient, db):
+    import secrets
+    from datetime import datetime, timedelta
+    user = await _register_and_verify(client, db)
+    user.pending_email = "changed@example.com"
+    await db.commit()
+
+    plain = secrets.token_urlsafe(32)
+    from auth.models import TokenTypeEnum
+    token = EmailVerificationToken(
+        user_id=user.id,
+        token=_hash_token(plain),
+        token_type=TokenTypeEnum.email_change,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+    db.add(token)
+    await db.commit()
+
+    res = await client.post(VERIFY_URL, json={"token": plain})
+    assert res.status_code == 200
+    assert res.json()["token_type"] == "email_change"
+
+    await db.refresh(user)
+    assert user.email == "changed@example.com"
+    assert user.pending_email is None
+
+
+@pytest.mark.asyncio
+async def test_verify_email_change_old_email_cannot_login(client: AsyncClient, db):
+    import secrets
+    from datetime import datetime, timedelta
+    user = await _register_and_verify(client, db)
+    old_email = user.email
+    user.pending_email = "changed2@example.com"
+    await db.commit()
+
+    plain = secrets.token_urlsafe(32)
+    from auth.models import TokenTypeEnum
+    token = EmailVerificationToken(
+        user_id=user.id,
+        token=_hash_token(plain),
+        token_type=TokenTypeEnum.email_change,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+    db.add(token)
+    await db.commit()
+
+    await client.post(VERIFY_URL, json={"token": plain})
+
+    res = await client.post(LOGIN_URL, json={"email": old_email, "password": VALID_PASSWORD})
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_verify_email_change_new_email_can_login(client: AsyncClient, db):
+    import secrets
+    from datetime import datetime, timedelta
+    user = await _register_and_verify(client, db)
+    user.pending_email = "changed3@example.com"
+    await db.commit()
+
+    plain = secrets.token_urlsafe(32)
+    from auth.models import TokenTypeEnum
+    token = EmailVerificationToken(
+        user_id=user.id,
+        token=_hash_token(plain),
+        token_type=TokenTypeEnum.email_change,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+    db.add(token)
+    await db.commit()
+
+    await client.post(VERIFY_URL, json={"token": plain})
+
+    res = await client.post(
+        LOGIN_URL, json={"email": "changed3@example.com", "password": VALID_PASSWORD}
+    )
+    assert res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_verify_email_change_used_token(client: AsyncClient, db):
+    import secrets
+    from datetime import datetime, timedelta
+    user = await _register_and_verify(client, db)
+    user.pending_email = "used@example.com"
+    await db.commit()
+
+    plain = secrets.token_urlsafe(32)
+    from auth.models import TokenTypeEnum
+    token = EmailVerificationToken(
+        user_id=user.id,
+        token=_hash_token(plain),
+        token_type=TokenTypeEnum.email_change,
+        expires_at=datetime.now(UTC) + timedelta(hours=24),
+        used_at=datetime.now(UTC),
+    )
+    db.add(token)
+    await db.commit()
+
+    res = await client.post(VERIFY_URL, json={"token": plain})
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_admin_login_with_customer_account(client: AsyncClient, db):
     await _register_and_verify(client, db)
     res = await client.post(

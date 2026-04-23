@@ -182,6 +182,15 @@ async def test_request_email_change_same_as_current(client: AsyncClient, db):
 
 
 @pytest.mark.asyncio
+async def test_request_email_change_same_as_pending(client: AsyncClient, db):
+    await _make_verified_user(client, db)
+    await _login(client)
+    await client.post(EMAIL_CHANGE_URL, json={"new_email": "pending@example.com"})
+    res = await client.post(EMAIL_CHANGE_URL, json={"new_email": "pending@example.com"})
+    assert res.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_request_email_change_conflict(client: AsyncClient, db):
     await _make_verified_user(client, db)
     await _make_verified_user(client, db, email="other@example.com")

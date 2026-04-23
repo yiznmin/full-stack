@@ -155,8 +155,8 @@ async def complete_mappings(db: AsyncSession, job_id: UUID) -> dict:
 
     settings = await _get_settings(db)
     paint_ml_per_cm2 = float(settings.get("paint_ml_per_cm2", "0.05"))
-    paint_min_ml = float(settings.get("paint_min_ml", "5.0"))
-    paint_buffer_ratio = float(settings.get("paint_buffer_ratio", "1.2"))
+    paint_min_ml = float(settings.get("paint_min_ml", "3.0"))
+    paint_buffer_ratio = float(settings.get("paint_buffer_ratio", "1.3"))
 
     area = float(job.canvas_w_cm) * float(job.canvas_h_cm)
 
@@ -236,7 +236,7 @@ async def _auto_map(
         best = min(
             candidates,
             key=lambda c, _rgb=alg_rgb: (
-                lab_distance(_rgb, [c.rgb["rgb_r"], c.rgb["rgb_g"], c.rgb["rgb_b"]]),
+                lab_distance(_rgb, c.rgb),
                 str(c.id),
             ),
         )
@@ -280,10 +280,9 @@ async def _enrich_mappings(
     enriched = []
     for m in mappings:
         color = colors_by_id.get(m.physical_color_id)
-        alg = m.algorithm_rgb  # stored as [R, G, B]
         enriched.append({
             "template_id": m.template_id,
-            "algorithm_rgb": {"rgb_r": alg[0], "rgb_g": alg[1], "rgb_b": alg[2]},
+            "algorithm_rgb": list(m.algorithm_rgb),
             "physical_color": {
                 "id": color.id,
                 "code": color.code,

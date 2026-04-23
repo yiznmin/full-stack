@@ -77,6 +77,9 @@ async def request_email_change(
     if new_email == user.email:
         raise BadRequestError("新 Email 不能與目前 Email 相同")
 
+    if new_email == user.pending_email:
+        raise ConflictError("此 Email 與待驗證的 Email 相同")
+
     result = await db.execute(
         select(User).where(
             (User.id != user.id)
