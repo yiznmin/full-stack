@@ -779,9 +779,10 @@ async def _mark_quote_pending_notifications_done(
     db: AsyncSession, request_id: UUID
 ) -> None:
     """Mark admin_notifications(type=quote_pending, reference_id=request_id) as completed."""
+    from sqlalchemy import func as sa_func
     from sqlalchemy import update
 
-    from notifications.models import AdminNotification
+    from notifications.models import AdminNotification, NotificationStatusEnum
     await db.execute(
         update(AdminNotification)
         .where(
@@ -789,7 +790,11 @@ async def _mark_quote_pending_notifications_done(
             AdminNotification.reference_type == "custom_request",
             AdminNotification.reference_id == request_id,
         )
-        .values(is_completed=True, requires_action=False)
+        .values(
+            status=NotificationStatusEnum.completed,
+            requires_action=False,
+            updated_at=sa_func.now(),
+        )
     )
 
 

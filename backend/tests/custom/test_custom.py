@@ -367,7 +367,7 @@ async def test_admin_mark_negotiating(client, db):
         )
     )
     notif = notif_result.scalar_one()
-    assert notif.is_completed is True
+    assert notif.status.value == "completed"
 
 
 @pytest.mark.asyncio
@@ -623,7 +623,7 @@ async def test_create_jobs_auto_marks_negotiating(client, db):
         )
     )
     notif = notif_result.scalar_one()
-    assert notif.is_completed is True
+    assert notif.status.value == "completed"
 
 
 @pytest.mark.asyncio
