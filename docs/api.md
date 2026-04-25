@@ -916,14 +916,26 @@ Response 201: {
 
 ```json
 Request: { "reason": "string|null" }
+Response 200: { "id": "uuid", "status": "quote_rejected", "rejected_at": "datetime" }
 ```
 
 ### POST /custom/quote/{token}/extend
 **權限**：auth｜延長報價 1 天（每筆限一次）
 
 ```json
-Response 400: 已使用過延長機會
+Response 200: { "quote_expires_at": "datetime", "is_extended": true }
+Response 400 { "code": "QUOTE_ALREADY_EXTENDED" }: 已使用過延長機會
 ```
+
+### POST /custom/quote/{token}/request-revision
+**權限**：auth｜客戶要求修改報價（限 3 次）
+
+```json
+Request: { "reason": "string" }
+Response 200: { "id": "uuid", "status": "draft_revision", "revision_count": 1 }
+Response 400 { "code": "REVISION_LIMIT_EXCEEDED" }: 已達修改上限
+```
+> 觸發 E11-B：custom_requests.status: quote_sent → draft_revision；revision_count += 1；建立客戶訊息；通知管理員
 
 ---
 
@@ -966,8 +978,9 @@ Request: { "message": "string" }
 **權限**：admin｜取得客製照片簽名 URL（15分鐘 TTL）
 
 ```json
-Response 200: { "url": "https://..." }
+Response 200: { "url": "https://...", "expires_at": "datetime" }
 ```
+> Module 10 為 stub：直接回 photo_url + 假 expires_at；正式上線前以 Firebase Admin SDK 替換
 
 ### GET /admin/custom-requests/sse
 **權限**：admin｜SSE 推送（訊息、新申請通知）

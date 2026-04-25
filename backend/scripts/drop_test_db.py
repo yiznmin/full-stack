@@ -7,6 +7,7 @@ sys.path.insert(0, ".")
 
 import auth.models  # noqa: E402, F401
 import color.models  # noqa: E402, F401
+import custom.models  # noqa: E402, F401
 import discount.models  # noqa: E402, F401
 import notifications.models  # noqa: E402, F401
 import orders.models  # noqa: E402, F401

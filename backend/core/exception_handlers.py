@@ -9,7 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    body: dict = {"detail": exc.detail}
+    if exc.code is not None:
+        body["code"] = exc.code
+    return JSONResponse(status_code=exc.status_code, content=body)
 
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:

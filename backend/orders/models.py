@@ -147,8 +147,9 @@ class OrderItem(Base):
     product_variant_id = Column(
         UUID(as_uuid=True), ForeignKey("product_variants.id"), nullable=True
     )
-    # FK to custom_requests.id added in Module 10 migration
-    custom_request_id = Column(UUID(as_uuid=True), nullable=True)
+    custom_request_id = Column(
+        UUID(as_uuid=True), ForeignKey("custom_requests.id"), nullable=True
+    )
     production_job_id = Column(
         UUID(as_uuid=True), ForeignKey("production_jobs.id"), nullable=True
     )

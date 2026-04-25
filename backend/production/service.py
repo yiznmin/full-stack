@@ -79,6 +79,11 @@ async def create_jobs(
         db.add(job)
         created_jobs.append(job)
 
+    # E26: auto-transition custom_request quote_pending → negotiating
+    if custom_request_id is not None:
+        from custom.service import auto_mark_negotiating_on_production_job
+        await auto_mark_negotiating_on_production_job(db, custom_request_id)
+
     await db.commit()
     for job in created_jobs:
         await db.refresh(job)

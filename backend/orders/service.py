@@ -1003,9 +1003,21 @@ async def admin_update_order_status(
         items_result = await db.execute(
             select(OrderItem).where(OrderItem.order_id == order_id)
         )
-        for item in items_result.scalars().all():
+        items = list(items_result.scalars().all())
+        for item in items:
             prog = ProductionProgress(order_item_id=item.id)
             db.add(prog)
+        # E21 (custom branch): if any item is from a custom request, notify admin
+        is_custom = any(item.custom_request_id is not None for item in items)
+        if is_custom:
+            await create_notification(
+                db,
+                type="custom_order_paid",
+                message=f"客製訂單 {order.order_number} 已付款，請進入備貨流程",
+                reference_type="order",
+                reference_id=order.id,
+                requires_action=True,
+            )
         await _send_email(
             to=user.email,
             subject=f"【PaintLearn】付款確認 {order.order_number}",

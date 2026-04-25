@@ -63,7 +63,9 @@ class ProductionJob(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     image_id = Column(UUID(as_uuid=True), ForeignKey("images.id"), nullable=True)
-    custom_request_id = Column(UUID(as_uuid=True), nullable=True)
+    custom_request_id = Column(
+        UUID(as_uuid=True), ForeignKey("custom_requests.id"), nullable=True
+    )
     status = Column(
         Enum(JobStatusEnum), nullable=False, default=JobStatusEnum.pending
     )
