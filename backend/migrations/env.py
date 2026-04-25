@@ -16,6 +16,7 @@ from core.database import Base
 # import all models so Alembic can detect schema changes
 import auth.models  # noqa: F401
 import color.models  # noqa: F401
+import content.models  # noqa: F401
 import custom.models  # noqa: F401
 import discount.models  # noqa: F401
 import notifications.models  # noqa: F401
