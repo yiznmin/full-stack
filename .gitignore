@@ -61,3 +61,9 @@ dist/
 # Scripts markers
 backend/scripts/.needs_review
 backend/scripts/review_history/
+
+# Claude Code local config + reviewer transcripts
+.claude/
+
+# DocFinal: local docs mirror, not part of project source of truth
+DocFinal/
