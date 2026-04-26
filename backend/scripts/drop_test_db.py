@@ -13,6 +13,7 @@ import discount.models  # noqa: E402, F401
 import notifications.models  # noqa: E402, F401
 import orders.models  # noqa: E402, F401
 import palette.models  # noqa: E402, F401
+import print_batch.models  # noqa: E402, F401
 import product.models  # noqa: E402, F401
 import production.models  # noqa: E402, F401
 import users.models  # noqa: E402, F401

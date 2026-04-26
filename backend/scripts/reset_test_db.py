@@ -13,6 +13,7 @@ import discount.models  # noqa: E402, F401
 import notifications.models  # noqa: E402, F401
 import orders.models  # noqa: E402, F401
 import palette.models  # noqa: E402, F401
+import print_batch.models  # noqa: E402, F401
 import product.models  # noqa: E402, F401
 import production.models  # noqa: E402, F401
 import users.models  # noqa: E402, F401
@@ -34,6 +35,8 @@ async def main():
         await conn.execute(text("DROP TYPE IF EXISTS customrequeststatusenum CASCADE"))
         await conn.execute(text("DROP TYPE IF EXISTS messagesendertypeenum CASCADE"))
         await conn.execute(text("DROP TYPE IF EXISTS notificationstatusenum CASCADE"))
+        await conn.execute(text("DROP TYPE IF EXISTS printbatchstatusenum CASCADE"))
+        await conn.execute(text("DROP TYPE IF EXISTS printbatchitemsourceenum CASCADE"))
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS order_number_seq START 1"))
         # Seed system_settings.quote_reply_days for module 10
