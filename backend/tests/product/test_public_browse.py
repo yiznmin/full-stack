@@ -14,7 +14,6 @@ from product.models import (
 )
 from production.models import ProductionJob
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -34,7 +33,10 @@ async def _make_job(db, *, w=30, h=40, difficulty="beginner", detail="standard",
     return job
 
 
-async def _make_product(db, *, title="畫", status=ProductStatusEnum.on_sale, series_id=None, series_order=None):
+async def _make_product(
+    db, *, title="畫", status=ProductStatusEnum.on_sale,
+    series_id=None, series_order=None,
+):
     p = Product(
         title=title,
         description=f"{title} 描述",

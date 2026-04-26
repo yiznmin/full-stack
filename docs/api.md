@@ -532,6 +532,42 @@ Request: { "code": "201", "name": "SKIN TONE", "color_family": "膚色系", "bra
 ### PATCH /admin/colors/{id}/toggle-active
 **權限**：admin｜停用後視同庫存為 0
 
+### PATCH /admin/colors/{id}/rgb
+**權限**：admin｜校正實體色 RGB（palette workspace 彈跳視窗）
+
+```json
+Request:  { "hex": "#FF8800" } 或 { "rgb": [255, 136, 0] }
+Response 200: PhysicalColor 完整物件
+Response 422: hex/rgb 同時提供、或都未提供、或格式不符
+```
+> hex 與 rgb 二擇一必填。校正不影響既有 palette_color_mappings 與 required_ml；僅影響未來新建 mapping 的 LAB 距離自動配色結果。
+> 每次校正都會寫入 `physical_color_rgb_history` 一筆 audit snapshot。
+
+### GET /admin/colors/{id}/rgb-history
+**權限**：admin｜列出此實體色的 RGB 變動歷史（時間倒序）
+
+```json
+Response 200: {
+  "items": [
+    { "id": "uuid", "rgb": [255, 136, 0],
+      "changed_by_user_id": "uuid|null",
+      "changed_by_name": "string|null",
+      "note": "initial|manual|revert from <id>",
+      "created_at": "datetime" }
+  ]
+}
+```
+
+### POST /admin/colors/{id}/rgb-revert
+**權限**：admin｜還原實體色 RGB 到指定的歷史版本
+
+```json
+Request:  { "history_id": "uuid" }
+Response 200: PhysicalColor 完整物件
+Response 404: history_id 不存在或不屬於此實體色
+```
+> 還原也會寫入新的 audit snapshot（`note="revert from <history_id>"`），保留完整 audit trail。
+
 ### PATCH /admin/colors/{id}/stock
 **權限**：admin｜更新庫存並觸發預購等待掃描
 

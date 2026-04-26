@@ -588,8 +588,11 @@ async def _public_product_brief(db: AsyncSession, product: Product) -> dict:
         prices = [v.price for v, _ in rows]
         difficulties = [_enum_str(j.difficulty) for _, j in rows]
 
-    diff_min = min(difficulties, key=lambda d: _DIFFICULTY_ORDER.get(d, 0)) if difficulties else None
-    diff_max = max(difficulties, key=lambda d: _DIFFICULTY_ORDER.get(d, 0)) if difficulties else None
+    def _key(d):
+        return _DIFFICULTY_ORDER.get(d, 0)
+
+    diff_min = min(difficulties, key=_key) if difficulties else None
+    diff_max = max(difficulties, key=_key) if difficulties else None
 
     return {
         "id": product.id,

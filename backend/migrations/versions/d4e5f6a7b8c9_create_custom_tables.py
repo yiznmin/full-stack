@@ -5,15 +5,16 @@ Revises: c3d4e5f6a7b8
 Create Date: 2026-04-25 00:00:00.000000
 
 """
-from typing import Sequence, Union
+import uuid
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = 'd4e5f6a7b8c9'
-down_revision: Union[str, Sequence[str], None] = 'c3d4e5f6a7b8'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = 'c3d4e5f6a7b8'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 _REQUEST_TYPES = ('custom_photo', 'custom_spec')
@@ -115,7 +116,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
     )
 
-    op.create_table(
+    canvas_sizes_t = op.create_table(
         'canvas_sizes',
         sa.Column('id', sa.dialects.postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('canvas_w_cm', sa.Integer(), nullable=False),
@@ -148,7 +149,7 @@ def upgrade() -> None:
         "ON CONFLICT (key) DO NOTHING"
     )
 
-    # Seed canvas_sizes (17 standard sizes per pricing_formula.md)
+    # Seed canvas_sizes (17 standard sizes per pricing_formula.md) — parameterized
     seeds = [
         (20, 20, "20×20 cm", 1),
         (30, 30, "30×30 cm", 2),
@@ -168,11 +169,16 @@ def upgrade() -> None:
         (60, 60, "60×60 cm", 16),
         (70, 50, "70×50 cm", 17),
     ]
-    for w, h, name, order in seeds:
-        op.execute(
-            "INSERT INTO canvas_sizes (id, canvas_w_cm, canvas_h_cm, display_name, sort_order) "
-            f"VALUES (gen_random_uuid(), {w}, {h}, '{name}', {order})"
-        )
+    op.bulk_insert(
+        canvas_sizes_t,
+        [
+            {
+                "id": uuid.uuid4(), "canvas_w_cm": w, "canvas_h_cm": h,
+                "display_name": name, "sort_order": order,
+            }
+            for w, h, name, order in seeds
+        ],
+    )
 
 
 def downgrade() -> None:

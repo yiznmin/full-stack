@@ -40,3 +40,16 @@ class ShortageItem(BaseModel):
 
 class ShortageDashboardResponse(BaseModel):
     items: list[ShortageItem]
+
+
+class RgbHistoryItem(BaseModel):
+    id: UUID
+    rgb: list[int]
+    changed_by_user_id: UUID | None
+    changed_by_name: str | None
+    note: str | None
+    created_at: datetime
+
+
+class RgbHistoryListResponse(BaseModel):
+    items: list[RgbHistoryItem]

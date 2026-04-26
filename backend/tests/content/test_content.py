@@ -295,8 +295,10 @@ async def test_delete_category_sets_null(client, db):
     await _login_admin(client)
     await client.delete(f"/api/v1/admin/case-categories/{cat.id}")
 
-    db.expire_all()
-    db_check = await db.execute(select(CustomCase).where(CustomCase.id == case.id))
+    db_check = await db.execute(
+        select(CustomCase).where(CustomCase.id == case.id)
+        .execution_options(populate_existing=True)
+    )
     refreshed = db_check.scalar_one()
     assert refreshed.category_id is None
 

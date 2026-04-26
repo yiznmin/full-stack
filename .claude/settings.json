@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv/Scripts/python -m pytest tests/auth/test_auth.py::test_register_success -s)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/test_auth.py::test_register_success --tb=short -q)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/test_auth.py::test_register_success tests/auth/test_auth.py::test_login_success tests/auth/test_auth.py::test_register_duplicate_email -v --tb=short)",
+      "Bash(venv/Scripts/pip show *)",
+      "Bash(venv/Scripts/python -c ' *)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/test_auth.py::test_register_password_too_short -v --tb=short --timeout=15)",
+      "Bash(cat)",
+      "Bash(venv/Scripts/python -m pytest tests/test_minimal.py -v -s --timeout=15)",
+      "Bash(timeout 20 venv/Scripts/python -c ' *)",
+      "Bash(venv/Scripts/python -m pytest tests/test_minimal.py -v -s --timeout=20)",
+      "Bash(venv/Scripts/python -m pytest tests/test_minimal.py -v -s --timeout=30)",
+      "Bash(venv/Scripts/python scripts/reset_test_db.py)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/ -v --timeout=60)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/ -v --tb=short --timeout=30 -k \"not test_reset_password_success and not test_admin_login\")",
+      "Bash(venv/Scripts/python -m pytest tests/auth/test_auth.py::test_reset_password_invalid_token -v --timeout=20 -s)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/test_auth.py::test_verify_email_invalid_token tests/auth/test_auth.py::test_reset_password_invalid_token -v --timeout=30 -s)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/test_auth.py::test_verify_email_invalid_token -v --timeout=20)",
+      "Bash(timeout 10 venv/Scripts/python -c ' *)",
+      "Bash(venv/Scripts/python -m pytest tests/auth/ -v --timeout=30)",
+      "Bash(venv/Scripts/python scripts/quality_check.py)",
+      "Bash(gh pr *)",
+      "Bash(venv/Scripts/python scripts/clear_review.py)",
+      "Bash(rm -f scripts/.needs_review)",
+      "Bash(venv/Scripts/python scripts/clear_review.py pass \"19/19 tests pass; no must-fix issues; 2 should-fix suggestions\")"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f \"/d/website/PaintLearn/backend/scripts/.needs_review\" ]; then echo \"BLOCKED: quality gates passed but /reviewer has not been called yet. Run /reviewer before making any edits.\"; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

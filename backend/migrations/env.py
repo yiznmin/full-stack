@@ -1,6 +1,6 @@
 import asyncio
-import sys
 import os
+import sys
 from logging.config import fileConfig
 
 from alembic import context
@@ -9,9 +9,6 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from core.config import settings
-from core.database import Base
 
 # import all models so Alembic can detect schema changes
 import auth.models  # noqa: F401
@@ -25,6 +22,8 @@ import palette.models  # noqa: F401
 import product.models  # noqa: F401
 import production.models  # noqa: F401
 import users.models  # noqa: F401
+from core.config import settings
+from core.database import Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

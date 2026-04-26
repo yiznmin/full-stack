@@ -4,6 +4,7 @@ from sqlalchemy import (
     TIMESTAMP,
     Boolean,
     Column,
+    ForeignKey,
     Numeric,
     String,
     Text,
@@ -32,6 +33,26 @@ class PhysicalColor(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class PhysicalColorRgbHistory(Base):
+    """每次實體色 RGB 變動的 audit snapshot（建色 / 校正 / 還原皆寫入）。"""
+    __tablename__ = "physical_color_rgb_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    physical_color_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("physical_colors.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    rgb = Column(JSONB, nullable=False)
+    changed_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    note = Column(String, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
 class SystemSetting(Base):

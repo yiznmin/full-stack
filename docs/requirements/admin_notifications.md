@@ -48,6 +48,7 @@
 | `quote_rejected` | 客戶拒絕報價 | 申請已取消 |
 | `ecpay_status` | ECpay Webhook 物流狀態更新 | 物流進度同步 |
 | `order_completed_by_customer` | 客戶主動點確認收貨 | 訂單已由客戶確認完結 |
+| `preorder_upgraded` | 進貨後預購訂單自動升單成功 | 預購商品已備齊，已自動推進 production_progress |
 
 ---
 

@@ -43,7 +43,9 @@ router = APIRouter(tags=["Admin - Products"])
 
 @router.get("/products", response_model=PublicProductListResponse, tags=["Store - Browse"])
 async def store_list_products(
-    difficulty: Literal["beginner", "elementary", "intermediate", "advanced"] | None = Query(default=None),
+    difficulty: (
+        Literal["beginner", "elementary", "intermediate", "advanced"] | None
+    ) = Query(default=None),
     detail: Literal["rough", "standard", "detailed", "premium"] | None = Query(default=None),
     canvas_size: str | None = Query(default=None, description="WxH e.g. 30x40"),
     tag_id: UUID | None = Query(default=None),

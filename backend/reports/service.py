@@ -10,7 +10,7 @@ from orders.models import Order, OrderStatusEnum
 async def sales_summary(
     db: AsyncSession, date_from: date | None, date_to: date | None
 ) -> dict:
-    # Include both completed (full revenue) and partially_refunded (revenue = total - refund_amount).
+    # Include completed (full) + partially_refunded (revenue = total - refund_amount).
     query = select(Order).where(
         Order.status.in_([OrderStatusEnum.completed, OrderStatusEnum.partially_refunded])
     )

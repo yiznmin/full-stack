@@ -253,6 +253,21 @@
 
 ---
 
+### physical_color_rgb_history
+
+| 欄位 | 型別 | 限制 | 說明 |
+|------|------|------|------|
+| id | UUID | PK | 主鍵 |
+| physical_color_id | UUID | NOT NULL, FK → physical_colors.id ON DELETE CASCADE | 所屬實體色 |
+| rgb | JSONB | NOT NULL | 該版本的 RGB snapshot `[R, G, B]` |
+| changed_by_user_id | UUID | nullable, FK → users.id ON DELETE SET NULL | 變更者（系統建色時可空） |
+| note | VARCHAR | nullable | `initial` / `manual` / `revert from <history_id>` |
+| created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 變動時間 |
+
+> 每次 `create_color`、`update_rgb`、`revert_rgb` 都寫入一筆。INDEX `(physical_color_id, created_at DESC)` 加速歷史查詢。
+
+---
+
 ### palette_color_mappings
 
 | 欄位 | 型別 | 限制 | 說明 |
@@ -589,9 +604,11 @@
 | `production_failed` | true | production_job 失敗 |
 | `batch_completed` | true | production 批次全部處理完畢 |
 | `order_completed_by_customer` | false | 客戶主動點確認收貨 |
+| `preorder_upgraded` | false | 進貨後預購訂單自動升單成功（per-order）|
 
 > 新通知即時推送至所有有活躍 SSE 連線的 admin（Railway heartbeat 每 30 秒）。
 > payment_resubmitted 建立時，自動將同訂單的 payment_submitted 通知標記為 completed。
+> preorder_upgraded 由 E34 觸發，每升單一張訂單建立一筆通知。
 
 ---
 

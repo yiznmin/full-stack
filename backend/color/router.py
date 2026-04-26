@@ -4,11 +4,18 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from color import service
-from color.schemas.request import AddStockRequest, CreateColorRequest, UpdateColorRequest
+from color.schemas.request import (
+    AddStockRequest,
+    CreateColorRequest,
+    RevertRgbRequest,
+    UpdateColorRequest,
+    UpdateRgbRequest,
+)
 from color.schemas.response import (
     AddStockResponse,
     ColorListResponse,
     PhysicalColorResponse,
+    RgbHistoryListResponse,
     ShortageDashboardResponse,
 )
 from core.database import get_db
@@ -44,7 +51,7 @@ async def create_color(
     operator=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.create_color(db, body.model_dump())
+    return await service.create_color(db, body.model_dump(), operator.id)
 
 
 @router.put("/admin/colors/{color_id}", response_model=PhysicalColorResponse)
@@ -64,6 +71,46 @@ async def toggle_active(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.toggle_active(db, color_id)
+
+
+@router.patch("/admin/colors/{color_id}/rgb", response_model=PhysicalColorResponse)
+async def update_rgb(
+    color_id: UUID,
+    body: UpdateRgbRequest,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """校正實體色 RGB。Body 接 hex（"#RRGGBB"）或 rgb（[R,G,B]）二擇一。
+
+    用於 palette workspace 彈跳視窗：管理員依實品顏料微調系統存的 RGB。
+    """
+    return await service.update_rgb(db, color_id, body.rgb, operator.id, "manual")
+
+
+@router.get(
+    "/admin/colors/{color_id}/rgb-history", response_model=RgbHistoryListResponse
+)
+async def list_rgb_history(
+    color_id: UUID,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    items = await service.list_rgb_history(db, color_id)
+    return RgbHistoryListResponse(items=items)
+
+
+@router.post(
+    "/admin/colors/{color_id}/rgb-revert", response_model=PhysicalColorResponse
+)
+async def revert_rgb(
+    color_id: UUID,
+    body: RevertRgbRequest,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.revert_rgb(
+        db, color_id, UUID(body.history_id), operator.id
+    )
 
 
 @router.patch("/admin/colors/{color_id}/stock", response_model=AddStockResponse)
