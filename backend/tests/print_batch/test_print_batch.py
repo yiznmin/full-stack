@@ -538,7 +538,7 @@ async def test_generate_pdf_with_parseable_svg_returns_url(db):
 
 @pytest.mark.asyncio
 async def test_generate_pdf_falls_back_on_unparseable_svg(db):
-    """SVG 解析失敗時走佔位框 fallback，仍回傳 URL 不爆。"""
+    """svglib + cairosvg 皆失敗時走佔位框 fallback，仍回傳 URL 不爆。"""
     from print_batch.models import PrintBatchItem, PrintBatchItemSourceEnum
     from print_batch.service import _generate_pdf
 
@@ -563,3 +563,130 @@ async def test_generate_pdf_falls_back_on_unparseable_svg(db):
 
     assert isinstance(url, str)
     assert url.startswith("https://stub.firebase/print_batch/")
+
+
+@pytest.mark.asyncio
+async def test_render_svg_falls_back_to_cairosvg_when_svglib_fails(db):
+    """svglib 失敗時走 cairosvg → PNG，回傳 png_bytes 不為 None。"""
+    import cairosvg
+
+    from print_batch.service import _render_svg_with_fallbacks
+
+    valid_svg = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<svg xmlns="http://www.w3.org/2000/svg" '
+        'width="20mm" height="30mm" viewBox="0 0 20 30">'
+        '<rect width="20" height="30" fill="white" stroke="black"/>'
+        '</svg>'
+    )
+
+    def mock_client_factory(*args, **kwargs):
+        return _MockHttpClient(valid_svg)
+
+    cairo_calls = []
+    original_svg2png = cairosvg.svg2png
+
+    def spy_svg2png(**kwargs):
+        cairo_calls.append(kwargs)
+        return original_svg2png(**kwargs)
+
+    def force_svglib_fail(*_args, **_kwargs):
+        raise RuntimeError("forced svglib failure for test")
+
+    with (
+        patch("print_batch.service.httpx.AsyncClient", mock_client_factory),
+        patch("print_batch.service.svg2rlg", force_svglib_fail),
+        patch("print_batch.service.cairosvg.svg2png", spy_svg2png),
+    ):
+        drawing, png_bytes = await _render_svg_with_fallbacks(
+            "https://example.com/x.svg", w_cm=20.0, h_cm=30.0,
+        )
+
+    assert drawing is None
+    assert png_bytes is not None and len(png_bytes) > 0
+    assert png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+    assert len(cairo_calls) == 1
+    assert cairo_calls[0]["output_width"] == int(20.0 * 118)
+    assert cairo_calls[0]["output_height"] == int(30.0 * 118)
+
+
+@pytest.mark.asyncio
+async def test_render_svg_returns_none_none_on_total_failure(db):
+    """svglib + cairosvg 皆失敗 → (None, None) 讓上層走佔位框。"""
+    from print_batch.service import _render_svg_with_fallbacks
+
+    def mock_client_factory(*args, **kwargs):
+        return _MockHttpClient("totally not svg")
+
+    with patch("print_batch.service.httpx.AsyncClient", mock_client_factory):
+        drawing, png_bytes = await _render_svg_with_fallbacks(
+            "https://example.com/junk.svg", w_cm=10.0, h_cm=10.0,
+        )
+
+    assert drawing is None
+    assert png_bytes is None
+
+
+@pytest.mark.asyncio
+async def test_render_svg_when_cairosvg_unavailable_returns_none_none(db):
+    """libcairo 缺失情境（cairosvg=None）→ Layer 2 跳過，回 (None, None)。"""
+    from print_batch.service import _render_svg_with_fallbacks
+
+    valid_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+        '<rect width="10" height="10" fill="white"/></svg>'
+    )
+
+    def mock_client_factory(*args, **kwargs):
+        return _MockHttpClient(valid_svg)
+
+    def force_svglib_fail(*_args, **_kwargs):
+        raise RuntimeError("forced svglib failure")
+
+    with (
+        patch("print_batch.service.httpx.AsyncClient", mock_client_factory),
+        patch("print_batch.service.svg2rlg", force_svglib_fail),
+        patch("print_batch.service.cairosvg", None),
+    ):
+        drawing, png_bytes = await _render_svg_with_fallbacks(
+            "https://example.com/x.svg", w_cm=10.0, h_cm=10.0,
+        )
+
+    assert drawing is None
+    assert png_bytes is None
+
+
+@pytest.mark.asyncio
+async def test_render_svg_when_svglib_unavailable_uses_cairosvg(db):
+    """svglib=None 情境（極端部署）→ 直接走 cairosvg。"""
+    import cairosvg
+
+    from print_batch.service import _render_svg_with_fallbacks
+
+    valid_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+        '<rect width="10" height="10" fill="white"/></svg>'
+    )
+
+    def mock_client_factory(*args, **kwargs):
+        return _MockHttpClient(valid_svg)
+
+    cairo_calls = []
+    original_svg2png = cairosvg.svg2png
+
+    def spy_svg2png(**kwargs):
+        cairo_calls.append(kwargs)
+        return original_svg2png(**kwargs)
+
+    with (
+        patch("print_batch.service.httpx.AsyncClient", mock_client_factory),
+        patch("print_batch.service.svg2rlg", None),
+        patch("print_batch.service.cairosvg.svg2png", spy_svg2png),
+    ):
+        drawing, png_bytes = await _render_svg_with_fallbacks(
+            "https://example.com/x.svg", w_cm=10.0, h_cm=10.0,
+        )
+
+    assert drawing is None
+    assert png_bytes is not None
+    assert len(cairo_calls) == 1

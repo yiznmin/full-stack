@@ -29,6 +29,20 @@ from production.models import ProductionJob
 logger = logging.getLogger(__name__)
 
 
+# Optional deps for PDF rendering — exposed at module-level so tests can patch
+# `print_batch.service.svg2rlg` / `print_batch.service.cairosvg` without
+# touching the upstream library namespace. (OSError covers libcairo missing.)
+try:
+    from svglib.svglib import svg2rlg
+except (ImportError, OSError):  # pragma: no cover
+    svg2rlg = None
+
+try:
+    import cairosvg
+except (ImportError, OSError):  # pragma: no cover
+    cairosvg = None
+
+
 # ── Pricing ───────────────────────────────────────────────────────────────────
 
 
@@ -481,18 +495,22 @@ def _summary_serialize(batch: PrintBatch, item_count: int) -> dict:
 async def _generate_pdf(items: list) -> str:
     """從 production_job.svg_url 抓 SVG → 拼到一份 PDF → 上傳（stub）→ 回 URL。
 
-    Stub 模式：輸出 mock URL；實作時用 svglib + reportlab 拼版。
-    若 svglib 解析失敗，fallback 用 Pillow 純黑框佔位。
+    三層 fallback（最保策略）：
+      1. svglib → reportlab Drawing（向量，最佳品質、檔案最小）
+      2. cairosvg → PNG @ 300 DPI（複雜 SVG 救援；rasterize 仍可印）
+      3. 佔位框（兩者皆失敗才走）
+
+    Stub 模式：輸出 mock URL；實作時上傳到 Firebase。
     """
     try:
         from reportlab.graphics import renderPDF
         from reportlab.lib.units import cm
+        from reportlab.lib.utils import ImageReader
         from reportlab.pdfgen import canvas as rl_canvas
-        from svglib.svglib import svg2rlg
     except ImportError:
         logger.warning(
-            "svglib / reportlab 未安裝，PDF 生成走 stub。"
-            "執行 pip install svglib reportlab Pillow"
+            "reportlab 未安裝，PDF 生成走 stub。"
+            "執行 pip install svglib reportlab Pillow cairosvg"
         )
         return _stub_pdf_url()
 
@@ -502,22 +520,15 @@ async def _generate_pdf(items: list) -> str:
         # NUMERIC → float for reportlab unit math
         w_cm = float(item.canvas_w_cm)
         h_cm = float(item.canvas_h_cm)
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(job.svg_url)
-                resp.raise_for_status()
-                svg_text = resp.text
-            drawing = svg2rlg(io.StringIO(svg_text))
-            svg_drawings.append({
-                "drawing": drawing, "w_cm": w_cm, "h_cm": h_cm,
-                "qty": item.quantity,
-            })
-        except Exception as e:
-            logger.warning(f"無法處理 svg {job.svg_url}: {e}")
-            svg_drawings.append({
-                "drawing": None, "w_cm": w_cm, "h_cm": h_cm,
-                "qty": item.quantity,
-            })
+        drawing, png_bytes = await _render_svg_with_fallbacks(
+            job.svg_url, w_cm, h_cm,
+        )
+        svg_drawings.append({
+            "drawing": drawing,
+            "png_bytes": png_bytes,
+            "w_cm": w_cm, "h_cm": h_cm,
+            "qty": item.quantity,
+        })
 
     # 簡單 layout：依次橫排到固定寬度（200cm），超過則換行
     page_w_cm = 200
@@ -535,6 +546,7 @@ async def _generate_pdf(items: list) -> str:
                 row_h = 0
             placements.append({
                 "drawing": d["drawing"],
+                "png_bytes": d["png_bytes"],
                 "x_cm": cursor_x + MARGIN_CM / 2,
                 "y_cm": cursor_y + MARGIN_CM / 2,
                 "w_cm": d["w_cm"],
@@ -553,23 +565,85 @@ async def _generate_pdf(items: list) -> str:
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=(total_w_cm * cm, total_h_cm * cm))
     for p in placements:
-        if p["drawing"] is None:
-            # 佔位框
-            c.rect(p["x_cm"] * cm, (total_h_cm - p["y_cm"] - p["h_cm"]) * cm,
-                   p["w_cm"] * cm, p["h_cm"] * cm, stroke=1, fill=0)
-            continue
-        # ReportLab Y 軸從下往上，需轉換
-        renderPDF.draw(
-            p["drawing"], c,
-            p["x_cm"] * cm,
-            (total_h_cm - p["y_cm"] - p["h_cm"]) * cm,
-        )
+        x_pt = p["x_cm"] * cm
+        y_pt = (total_h_cm - p["y_cm"] - p["h_cm"]) * cm
+        if p["drawing"] is not None:
+            # 向量（svglib）— ReportLab Y 軸從下往上
+            renderPDF.draw(p["drawing"], c, x_pt, y_pt)
+        elif p["png_bytes"] is not None:
+            # 點陣（cairosvg fallback）
+            img = ImageReader(io.BytesIO(p["png_bytes"]))
+            c.drawImage(
+                img, x_pt, y_pt,
+                width=p["w_cm"] * cm, height=p["h_cm"] * cm,
+            )
+        else:
+            # 佔位框（最後保險）
+            c.rect(x_pt, y_pt, p["w_cm"] * cm, p["h_cm"] * cm, stroke=1, fill=0)
     c.showPage()
     c.save()
     pdf_bytes = buf.getvalue()
     _ = pdf_bytes  # 實際應上傳到 Firebase；目前 stub
 
     return _stub_pdf_url()
+
+
+async def _render_svg_with_fallbacks(
+    svg_url: str | None, w_cm: float, h_cm: float,
+) -> tuple[object | None, bytes | None]:
+    """三層 fallback 解析 SVG：svglib → cairosvg(PNG) → None。
+
+    回傳 (drawing, png_bytes)：
+      - (drawing, None)：svglib 成功
+      - (None, png_bytes)：svglib 失敗、cairosvg 成功
+      - (None, None)：兩者皆失敗或抓 SVG 失敗 → 走佔位框
+    """
+    if not svg_url:
+        return None, None
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(svg_url)
+            resp.raise_for_status()
+            svg_text = resp.text
+    except Exception as e:
+        logger.warning(f"抓取 svg 失敗 {svg_url}: {e}")
+        return None, None
+
+    # Layer 1：svglib（向量）
+    if svg2rlg is not None:
+        try:
+            drawing = svg2rlg(io.StringIO(svg_text))
+            if drawing is not None:
+                return drawing, None
+        except Exception as e:
+            logger.warning(f"svglib 解析失敗 {svg_url}: {e}")
+    else:
+        logger.warning("svglib 未載入，跳過第一層")
+
+    # Layer 2：cairosvg → PNG @ 300 DPI
+    if cairosvg is not None:
+        try:
+            # 1cm ≈ 118 px @ 300 DPI；保底 1px 避免 0 維度
+            target_w = max(int(w_cm * 118), 1)
+            target_h = max(int(h_cm * 118), 1)
+            png_buf = io.BytesIO()
+            cairosvg.svg2png(
+                bytestring=svg_text.encode("utf-8"),
+                write_to=png_buf,
+                output_width=target_w,
+                output_height=target_h,
+            )
+            return None, png_buf.getvalue()
+        except (OSError, Exception) as e:
+            # OSError：libcairo C 庫缺失或版本不符
+            logger.warning(f"cairosvg 解析失敗 {svg_url}: {e}")
+    else:
+        logger.warning("cairosvg 未載入（含 libcairo 缺失），跳過第二層")
+
+    logger.warning(
+        f"⚠️ {svg_url} 走 placeholder 佔位框 — 列印品質受影響，請查 SVG 是否完整",
+    )
+    return None, None
 
 
 def _stub_pdf_url() -> str:
