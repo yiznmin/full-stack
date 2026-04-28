@@ -5,6 +5,12 @@ import sys
 
 sys.path.insert(0, ".")
 
+import core._windows_compat  # noqa: F401  # bypass broken WMI before asyncpg
+
+# Windows asyncpg fix: Selector event loop avoids hangs on Proactor
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import auth.models  # noqa: E402, F401
 import color.models  # noqa: E402, F401
 import content.models  # noqa: E402, F401

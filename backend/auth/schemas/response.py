@@ -1,16 +1,17 @@
 from datetime import date
+from uuid import UUID
 
 from pydantic import BaseModel
 
 
 class LoginResponse(BaseModel):
-    id: str
+    id: UUID
     name: str
     role: str
 
 
 class MeResponse(BaseModel):
-    id: str
+    id: UUID
     name: str
     email: str
     pending_email: str | None

@@ -1,3 +1,8 @@
+# ruff: noqa: I001
+# _windows_compat MUST run before any module that imports asyncpg (WMI workaround for
+# broken Windows dev machines). Ruff would resort imports otherwise.
+import core._windows_compat  # noqa: F401
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
