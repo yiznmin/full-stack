@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ChevronLeft,
@@ -7,8 +7,7 @@ import {
   MessageSquare,
   Send,
   Quote,
-  CheckCircle2,
-  ImageIcon,
+  ImageOff,
   ExternalLink,
   Link as LinkIcon,
 } from 'lucide-vue-next'
@@ -99,19 +98,38 @@ async function sendMessage() {
   }
 }
 
-// ── Photo download ────────────────────────────────────────────────────
+// ── Photo signed URL（inline 顯示 + 開新分頁）─────────────────────────
+// 後端會把 photo_url 設為 null 強迫走 signed URL endpoint（安全）。
+// 我們對 custom_photo 申請直接打一次拿 signed URL；404 = 真的沒上傳照片。
+const photoUrl = ref<string | null>(null)
 const photoLoading = ref(false)
-async function downloadPhoto() {
-  if (!req.value) return
-  photoLoading.value = true
-  try {
-    const r = await fetchPhotoSignedUrl(req.value.id)
-    window.open(r.url, '_blank', 'noopener')
-  } catch (e) {
-    handleApiError(e, '取得圖片連結失敗')
-  } finally {
-    photoLoading.value = false
-  }
+const photoLoadFailed = ref(false)
+const photoMissing = ref(false)
+
+watch(
+  () => req.value?.id,
+  async (id) => {
+    photoUrl.value = null
+    photoLoadFailed.value = false
+    photoMissing.value = false
+    if (!id || req.value?.request_type !== 'custom_photo') return
+    photoLoading.value = true
+    try {
+      const r = await fetchPhotoSignedUrl(id)
+      photoUrl.value = r.url
+    } catch (e) {
+      const err = e as { status?: number }
+      if (err.status === 404) photoMissing.value = true
+      else handleApiError(e, '取得圖片連結失敗')
+    } finally {
+      photoLoading.value = false
+    }
+  },
+  { immediate: true },
+)
+
+function openInNewTab() {
+  if (photoUrl.value) window.open(photoUrl.value, '_blank', 'noopener')
 }
 
 // ── Format helpers ────────────────────────────────────────────────────
@@ -252,21 +270,46 @@ const requestTypeLabel = computed(() => {
           </div>
         </Card>
 
-        <Card v-if="req.photo_url">
+        <Card v-if="req.request_type === 'custom_photo'">
           <div class="flex items-center justify-between mb-3">
             <h2 class="font-display text-ink-strong text-[18px] leading-[26px]">客戶照片</h2>
-            <Button variant="secondary" :disabled="photoLoading" @click="downloadPhoto">
-              <Loader2 v-if="photoLoading" :size="14" :stroke-width="1.5" class="animate-spin" />
-              <ExternalLink v-else :size="14" :stroke-width="1.5" />
-              開新分頁查看原圖
+            <Button
+              variant="secondary"
+              :disabled="!photoUrl"
+              @click="openInNewTab"
+            >
+              <ExternalLink :size="14" :stroke-width="1.5" />
+              開新分頁
             </Button>
           </div>
           <div
             class="aspect-[4/3] rounded-[var(--radius-sm)] border border-line-hairline overflow-hidden bg-paper-canvas flex items-center justify-center"
           >
-            <ImageIcon :size="40" :stroke-width="1.25" class="text-ink-muted" />
+            <Loader2
+              v-if="photoLoading"
+              :size="32"
+              :stroke-width="1.5"
+              class="animate-spin text-ink-muted"
+            />
+            <img
+              v-else-if="photoUrl && !photoLoadFailed"
+              :src="photoUrl"
+              alt="客戶上傳照片"
+              class="w-full h-full object-contain bg-paper-surface"
+              @error="photoLoadFailed = true"
+            />
+            <div v-else-if="photoMissing" class="text-center px-4 text-ink-muted">
+              <ImageOff :size="32" :stroke-width="1.25" class="mx-auto mb-2" />
+              <p class="text-[12px]">客戶尚未上傳照片</p>
+            </div>
+            <div v-else class="text-center px-4 text-ink-muted">
+              <ImageOff :size="32" :stroke-width="1.25" class="mx-auto mb-2" />
+              <p class="text-[12px]">圖片無法顯示（簽章 URL 已過期或檔案不存在）</p>
+            </div>
           </div>
-          <p class="mt-2 text-[11px] text-ink-muted">點按上方按鈕透過 15 分鐘簽章 URL 取得原圖</p>
+          <p class="mt-2 text-[11px] text-ink-muted">
+            簽章 URL 有效期 15 分鐘，重新整理頁面即可取得新連結
+          </p>
         </Card>
 
         <!-- Messages -->
