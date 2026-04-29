@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ChevronLeft,
@@ -25,12 +25,14 @@ import {
   DETAIL_LABEL,
   DIFFICULTY_LABEL,
   createImage,
+  recommendCanvasSizes,
   requestUploadProductionImage,
+  type CanvasSizeSuggestion,
   type CreateJobsRequest,
   type Detail,
   type Difficulty,
 } from '../api'
-import { useCustomRequestsQuery } from '@/features/custom_requests/queries'
+import { fetchPhotoSignedUrl, useCustomRequestsQuery } from '@/features/custom_requests/queries'
 
 const router = useRouter()
 
@@ -46,6 +48,7 @@ const isUploading = ref(false)
 const uploadedImageId = ref<string | null>(null)
 const uploadedImageUrl = ref<string | null>(null)
 const uploadedFilename = ref<string | null>(null)
+const recommendedSizes = ref<CanvasSizeSuggestion[]>([])
 
 async function onFileChange(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
@@ -99,6 +102,20 @@ async function onFileChange(e: Event) {
       height: dims.height,
     })
     uploadedImageId.value = meta.id
+
+    // 5) 取系統推薦尺寸（依圖片比例從 17 種標準畫布挑 3 個最接近）
+    try {
+      const rec = await recommendCanvasSizes(dims.width, dims.height, 3)
+      recommendedSizes.value = rec.items
+      // 自動把第一組組合的 canvas 換成第一個推薦
+      if (rec.items.length > 0 && combos.value.length > 0) {
+        const top = rec.items[0]
+        combos.value[0].canvas_size = `${top.w}x${top.h}`
+      }
+    } catch {
+      // 推薦失敗不阻擋流程
+      recommendedSizes.value = []
+    }
   } catch (e) {
     apiError.value = (e as { message?: string }).message || '上傳失敗'
     uploadedImageUrl.value = null
@@ -127,6 +144,28 @@ const selectedCustomRequestId = ref<string | null>(null)
 const selectedCustomRequest = computed(() =>
   customCandidates.value.find((c) => c.id === selectedCustomRequestId.value),
 )
+
+// 選了客製申請就抓 photo signed URL 顯示
+const customPhotoUrl = ref<string | null>(null)
+const customPhotoLoading = ref(false)
+const customPhotoMissing = ref(false)
+
+watch(selectedCustomRequestId, async (id) => {
+  customPhotoUrl.value = null
+  customPhotoMissing.value = false
+  if (!id) return
+  customPhotoLoading.value = true
+  try {
+    const r = await fetchPhotoSignedUrl(id)
+    customPhotoUrl.value = r.url
+  } catch (e) {
+    const err = e as { status?: number }
+    if (err.status === 404) customPhotoMissing.value = true
+    else apiError.value = (e as { message?: string }).message || '取得照片失敗'
+  } finally {
+    customPhotoLoading.value = false
+  }
+})
 
 const customOptions = computed(() => {
   const opts = [{ value: '', label: '— 請選擇客製申請 —' }]
@@ -334,13 +373,40 @@ async function submit() {
           <Select v-model="selectedCustomRequestId" :options="customOptions" />
           <div
             v-if="selectedCustomRequest"
-            class="p-3 border border-line-hairline rounded-[var(--radius-xs)] bg-paper-subtle text-[13px]"
+            class="p-3 border border-line-hairline rounded-[var(--radius-xs)] bg-paper-subtle text-[13px] space-y-3"
           >
-            <p class="text-ink-strong font-medium">{{ selectedCustomRequest.user_name }}</p>
-            <p class="text-ink-muted text-[12px]">{{ selectedCustomRequest.user_email }}</p>
-            <p class="text-[12px] text-ink-default mt-1">
-              申請於 {{ new Date(selectedCustomRequest.created_at).toLocaleString('zh-TW') }}
-            </p>
+            <div>
+              <p class="text-ink-strong font-medium">{{ selectedCustomRequest.user_name }}</p>
+              <p class="text-ink-muted text-[12px]">{{ selectedCustomRequest.user_email }}</p>
+              <p class="text-[12px] text-ink-default mt-1">
+                申請於 {{ new Date(selectedCustomRequest.created_at).toLocaleString('zh-TW') }}
+              </p>
+            </div>
+
+            <!-- 客製照片預覽 -->
+            <div
+              class="aspect-[4/3] rounded-[var(--radius-xs)] border border-line-hairline overflow-hidden bg-paper-canvas flex items-center justify-center"
+            >
+              <Loader2
+                v-if="customPhotoLoading"
+                :size="24" :stroke-width="1.5"
+                class="animate-spin text-ink-muted"
+              />
+              <img
+                v-else-if="customPhotoUrl"
+                :src="customPhotoUrl"
+                alt="客戶上傳照片"
+                class="w-full h-full object-contain"
+              />
+              <div v-else-if="customPhotoMissing" class="text-center px-4 text-ink-muted">
+                <ImageIcon :size="24" :stroke-width="1.25" class="mx-auto mb-1" />
+                <p class="text-[12px]">客戶尚未上傳照片</p>
+              </div>
+              <div v-else class="text-center px-4 text-ink-muted">
+                <ImageIcon :size="24" :stroke-width="1.25" class="mx-auto mb-1" />
+                <p class="text-[12px]">照片無法顯示</p>
+              </div>
+            </div>
           </div>
           <p class="text-[12px] text-ink-muted">
             ⚠️ 送出後客製申請會自動轉為「洽談中」（若原為「等待報價」），且申請內容鎖定。
@@ -360,6 +426,29 @@ async function submit() {
           <Plus :size="14" :stroke-width="1.5" />
           新增組合
         </Button>
+      </div>
+
+      <!-- 系統推薦尺寸（依上傳圖片比例）-->
+      <div
+        v-if="recommendedSizes.length > 0"
+        class="mb-4 p-3 border border-accent/30 bg-[var(--color-accent)]/[0.04] rounded-[var(--radius-xs)]"
+      >
+        <p class="text-[12px] text-ink-strong mb-2">
+          <Sparkles :size="12" :stroke-width="1.5" class="inline mr-1 text-accent" />
+          系統推薦尺寸（依圖片比例最接近）— 點選快速套用到所有組合
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="r in recommendedSizes"
+            :key="`${r.w}x${r.h}`"
+            type="button"
+            class="px-3 h-9 inline-flex items-center gap-2 rounded-[var(--radius-xs)] border border-line-strong bg-paper-surface text-[13px] text-ink-default hover:bg-paper-subtle transition-colors"
+            @click="combos.forEach((c) => (c.canvas_size = `${r.w}x${r.h}`))"
+          >
+            <span class="font-mono">{{ r.w }} × {{ r.h }} cm</span>
+            <span class="text-[11px] text-ink-muted">{{ Math.round(r.ratio_match * 100) }}% 相符</span>
+          </button>
+        </div>
       </div>
 
       <div class="space-y-2">

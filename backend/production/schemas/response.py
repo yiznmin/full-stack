@@ -97,3 +97,13 @@ class UploadUrlResponse(BaseModel):
     upload_url: str
     public_url: str
     expires_at: datetime
+
+
+class CanvasSizeSuggestion(BaseModel):
+    w: int
+    h: int
+    ratio_match: float  # 0~1，1 = 比例完全相符
+
+
+class SuggestCanvasSizesResponse(BaseModel):
+    items: list[CanvasSizeSuggestion]

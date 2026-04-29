@@ -19,6 +19,58 @@ logger = logging.getLogger(__name__)
 _UPLOAD_TTL_MINUTES = 15
 
 
+# ── Canvas size suggestion ────────────────────────────────────────────────────
+# 沿用 paint-by-number/src/run.py 的 suggest_canvas_sizes 邏輯（保持與引擎一致）。
+# 17 種標準尺寸：正方 5 + 直幅 6 + 橫幅 6
+_STANDARD_CANVAS_SIZES_CM: list[tuple[int, int]] = [
+    # 正方形
+    (20, 20), (30, 30), (40, 40), (50, 50), (60, 60),
+    # 直幅
+    (30, 40), (30, 50), (30, 60),
+    (40, 50), (40, 60),
+    (50, 60),
+    # 橫幅
+    (40, 30), (50, 30), (60, 30),
+    (50, 40), (60, 40),
+    (60, 50),
+]
+
+
+def suggest_canvas_sizes(img_w_px: int, img_h_px: int, n: int = 3) -> list[dict]:
+    """根據圖片長寬比，從 17 種標準畫布規格中挑比例最接近的 n 個（去重後按面積排序）。
+
+    回傳格式：[{'w': 30, 'h': 40, 'ratio_match': 0.998}, ...]
+    `ratio_match` 為 0~1，1 = 比例完全相符。
+    """
+    if img_w_px <= 0 or img_h_px <= 0:
+        raise BadRequestError("圖片寬高必須 > 0")
+    img_ratio = img_w_px / img_h_px
+    scored = []
+    for w, h in _STANDARD_CANVAS_SIZES_CM:
+        ratio_diff = abs((w / h) - img_ratio)
+        area = w * h
+        scored.append((ratio_diff, area, (w, h)))
+    scored.sort(key=lambda x: (round(x[0], 3), x[1]))
+    seen_ratios: set[float] = set()
+    result: list[tuple[int, int]] = []
+    for _, _area, size in scored:
+        r = round(size[0] / size[1], 3)
+        if r not in seen_ratios:
+            seen_ratios.add(r)
+            result.append(size)
+        if len(result) == n:
+            break
+    result.sort(key=lambda s: s[0] * s[1])
+    return [
+        {
+            "w": w,
+            "h": h,
+            "ratio_match": round(1 - abs((w / h) - img_ratio) / max(w / h, img_ratio), 4),
+        }
+        for w, h in result
+    ]
+
+
 def generate_upload_signed_url(filename: str, content_type: str) -> dict:
     """產出 production_images 的 PUT signed URL + 短效 GET signed URL。
 
@@ -115,12 +167,21 @@ async def create_jobs(
 
 
 def _dispatch_tasks(jobs: list[ProductionJob], batch_id: uuid.UUID | None) -> None:
-    tasks = [run_production_job.si(str(j.id)) for j in jobs]
-    if len(tasks) == 1:
-        tasks[0].delay()
-    else:
-        error_cb = cancel_batch_remaining.si(str(batch_id))
-        chain(*[t.set(link_error=[error_cb]) for t in tasks]).delay()
+    """送到 Celery 佇列。若 broker（Redis）不可用，job 仍在 DB 內 status=pending，
+    等 worker 上線後可由 admin 重新派工或自動撿件。
+    """
+    try:
+        tasks = [run_production_job.si(str(j.id)) for j in jobs]
+        if len(tasks) == 1:
+            tasks[0].delay()
+        else:
+            error_cb = cancel_batch_remaining.si(str(batch_id))
+            chain(*[t.set(link_error=[error_cb]) for t in tasks]).delay()
+    except Exception as e:  # noqa: BLE001  — kombu / connection errors caught broadly by design
+        logger.warning(
+            "Celery dispatch failed (broker offline?): %s — jobs created in DB but not queued",
+            e,
+        )
 
 
 async def list_jobs(

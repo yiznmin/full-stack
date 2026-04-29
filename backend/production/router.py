@@ -17,6 +17,7 @@ from production.schemas.request import (
     EliminateBorderRequest,
     MergeColorRequest,
     SmoothContourRequest,
+    SuggestCanvasSizesRequest,
 )
 from production.schemas.response import (
     CreateJobsResponse,
@@ -25,6 +26,7 @@ from production.schemas.response import (
     JobDetailResponse,
     JobListResponse,
     SignedUrlResponse,
+    SuggestCanvasSizesResponse,
 )
 
 router = APIRouter(tags=["Admin - Production"])
@@ -175,6 +177,19 @@ async def post_process_smooth_contour(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.post_process(db, job_id, body.model_dump())
+
+
+@router.post(
+    "/admin/production/canvas-sizes/recommend",
+    response_model=SuggestCanvasSizesResponse,
+)
+async def recommend_canvas_sizes(
+    body: SuggestCanvasSizesRequest,
+    operator=Depends(require_admin),
+):
+    """根據圖片像素比例，從 17 種標準畫布規格中推薦比例最接近的 N 個。"""
+    items = service.suggest_canvas_sizes(body.width, body.height, body.n)
+    return {"items": items}
 
 
 @router.get(

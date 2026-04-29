@@ -83,6 +83,12 @@ class CreateImageRequest(BaseModel):
         return v
 
 
+class SuggestCanvasSizesRequest(BaseModel):
+    width: int = Field(gt=0, description="圖片寬度（像素）")
+    height: int = Field(gt=0, description="圖片高度（像素）")
+    n: int = Field(default=3, ge=1, le=10, description="要回幾組推薦尺寸")
+
+
 class ApproveRequest(BaseModel):
     notes: str | None = None
 

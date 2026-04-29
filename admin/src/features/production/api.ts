@@ -118,6 +118,16 @@ export interface SignedUrlResponse {
   url: string | null
 }
 
+export interface CanvasSizeSuggestion {
+  w: number
+  h: number
+  ratio_match: number
+}
+
+export interface SuggestCanvasSizesResponse {
+  items: CanvasSizeSuggestion[]
+}
+
 export interface UploadProductionImageRequest {
   filename: string
   content_type: 'image/jpeg' | 'image/png'
@@ -204,6 +214,13 @@ export function createImage(payload: CreateImageRequest) {
   })
 }
 
+export function recommendCanvasSizes(width: number, height: number, n = 3) {
+  return request<SuggestCanvasSizesResponse>('/admin/production/canvas-sizes/recommend', {
+    method: 'POST',
+    body: JSON.stringify({ width, height, n }),
+  })
+}
+
 /** 直接觸發瀏覽器下載 PDF，無回傳值。 */
 export async function downloadJobPdf(id: string) {
   const res = await fetch(`${API}/admin/production/jobs/${id}/export-pdf`, {
@@ -235,16 +252,28 @@ export interface CanvasSize {
   label: string
 }
 
+// 與後端 _STANDARD_CANVAS_SIZES_CM 一致（17 種標準尺寸）
 export const CANVAS_SIZES: CanvasSize[] = [
-  { w: 20, h: 20, label: '20 × 20 cm（小型方）' },
-  { w: 30, h: 30, label: '30 × 30 cm（標準方）' },
-  { w: 30, h: 40, label: '30 × 40 cm（直版小）' },
-  { w: 40, h: 30, label: '40 × 30 cm（橫版小）' },
-  { w: 40, h: 50, label: '40 × 50 cm（直版中）' },
-  { w: 50, h: 40, label: '50 × 40 cm（橫版中）' },
-  { w: 50, h: 70, label: '50 × 70 cm（直版大）' },
-  { w: 60, h: 60, label: '60 × 60 cm（大型方）' },
-  { w: 60, h: 80, label: '60 × 80 cm（直版加大）' },
+  // 正方形
+  { w: 20, h: 20, label: '20 × 20 cm（正方）' },
+  { w: 30, h: 30, label: '30 × 30 cm（正方）' },
+  { w: 40, h: 40, label: '40 × 40 cm（正方）' },
+  { w: 50, h: 50, label: '50 × 50 cm（正方）' },
+  { w: 60, h: 60, label: '60 × 60 cm（正方）' },
+  // 直幅
+  { w: 30, h: 40, label: '30 × 40 cm（直幅）' },
+  { w: 30, h: 50, label: '30 × 50 cm（直幅）' },
+  { w: 30, h: 60, label: '30 × 60 cm（直幅）' },
+  { w: 40, h: 50, label: '40 × 50 cm（直幅）' },
+  { w: 40, h: 60, label: '40 × 60 cm（直幅）' },
+  { w: 50, h: 60, label: '50 × 60 cm（直幅）' },
+  // 橫幅
+  { w: 40, h: 30, label: '40 × 30 cm（橫幅）' },
+  { w: 50, h: 30, label: '50 × 30 cm（橫幅）' },
+  { w: 60, h: 30, label: '60 × 30 cm（橫幅）' },
+  { w: 50, h: 40, label: '50 × 40 cm（橫幅）' },
+  { w: 60, h: 40, label: '60 × 40 cm（橫幅）' },
+  { w: 60, h: 50, label: '60 × 50 cm（橫幅）' },
 ]
 
 export const DETAIL_LABEL: Record<Detail, string> = {

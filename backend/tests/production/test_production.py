@@ -1023,3 +1023,85 @@ async def test_export_pdf_non_admin(client: AsyncClient, db):
 async def test_export_pdf_unauthenticated(client: AsyncClient, db):
     res = await client.get(f"{JOBS_URL}/{uuid.uuid4()}{EXPORT_PDF_URL_SUFFIX}")
     assert res.status_code == 401
+
+
+# ── POST /admin/production/canvas-sizes/recommend ─────────────────────────────
+
+RECOMMEND_URL = "/api/v1/admin/production/canvas-sizes/recommend"
+
+
+@pytest.mark.asyncio
+async def test_recommend_canvas_sizes_landscape(client: AsyncClient, db):
+    """橫幅圖（4:3）→ 應推薦橫幅尺寸（如 40×30 / 60×40）。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    res = await client.post(RECOMMEND_URL, json={"width": 1920, "height": 1080, "n": 3})
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) == 3
+    # 1920×1080 ≈ 1.78，最接近的會是 16:9 邊近的橫幅
+    # 至少要有一筆寬 > 高（橫幅）
+    assert any(s["w"] > s["h"] for s in items)
+    # 按面積由小到大排序
+    areas = [s["w"] * s["h"] for s in items]
+    assert areas == sorted(areas)
+
+
+@pytest.mark.asyncio
+async def test_recommend_canvas_sizes_square(client: AsyncClient, db):
+    """正方圖 → 應有正方尺寸入選（如 30×30）。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    res = await client.post(RECOMMEND_URL, json={"width": 1000, "height": 1000})
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) == 3
+    # 正方圖第一推薦應是正方尺寸（w==h）
+    assert items[0]["w"] == items[0]["h"]
+    # ratio_match 接近 1
+    assert items[0]["ratio_match"] > 0.99
+
+
+@pytest.mark.asyncio
+async def test_recommend_canvas_sizes_portrait(client: AsyncClient, db):
+    """直幅圖 → 至少一筆推薦是直幅（高>寬）。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    res = await client.post(RECOMMEND_URL, json={"width": 720, "height": 1280})
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert any(s["h"] > s["w"] for s in items)
+
+
+@pytest.mark.asyncio
+async def test_recommend_canvas_sizes_invalid_dimensions(client: AsyncClient, db):
+    """寬或高 ≤ 0 → 422。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    res = await client.post(RECOMMEND_URL, json={"width": 0, "height": 100})
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_recommend_canvas_sizes_n_param(client: AsyncClient, db):
+    """指定 n=5 應回 5 組。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    res = await client.post(RECOMMEND_URL, json={"width": 1000, "height": 800, "n": 5})
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) == 5
+
+
+@pytest.mark.asyncio
+async def test_recommend_canvas_sizes_non_admin(client: AsyncClient, db):
+    await _make_customer(client, db)
+    await _login(client, CUSTOMER_USER["email"], CUSTOMER_USER["password"])
+    res = await client.post(RECOMMEND_URL, json={"width": 100, "height": 100})
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_recommend_canvas_sizes_unauthenticated(client: AsyncClient, db):
+    res = await client.post(RECOMMEND_URL, json={"width": 100, "height": 100})
+    assert res.status_code == 401
