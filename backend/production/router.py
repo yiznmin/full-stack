@@ -2,6 +2,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -174,3 +175,22 @@ async def post_process_smooth_contour(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.post_process(db, job_id, body.model_dump())
+
+
+@router.get(
+    "/admin/production/jobs/{job_id}/export-pdf",
+    response_model=None,  # binary stream — no Pydantic model
+    response_class=Response,
+)
+async def export_job_pdf(
+    job_id: UUID,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """SVG → 單頁 PDF（即時轉換 + 四周 5cm 留白），直接 stream 下載。"""
+    pdf_bytes = await service.export_job_pdf(db, job_id)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="job-{job_id}.pdf"'},
+    )

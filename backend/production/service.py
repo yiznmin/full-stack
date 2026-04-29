@@ -1,3 +1,4 @@
+import io
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -198,6 +199,73 @@ async def unapprove_job(db: AsyncSession, job_id: UUID) -> ProductionJob:
     await db.commit()
     await db.refresh(job)
     return job
+
+
+# ── PDF export ─────────────────────────────────────────────────────────────────
+
+# 規格：admin_production.md §6 — 匯出 PDF 時 SVG viewBox 四周各擴展 5cm（裝訂留白）
+_PDF_MARGIN_CM = 5.0
+
+
+async def export_job_pdf(db: AsyncSession, job_id: UUID) -> bytes:
+    """SVG → 單頁 PDF（四周 5cm 邊框）。沿用 print_batch 的 svglib→cairosvg fallback。"""
+    job = await get_job(db, job_id)
+    if job.status != "completed":
+        raise BadRequestError("僅 completed 任務可匯出 PDF")
+    # 資料異常情境（completed 但無 svg_url）刻意回 400 而非 500：
+    # 理論上 worker 寫完 svg_url 才會把 status 設 completed；若真的發生不一致，
+    # 4xx 讓前端能顯示「請聯繫管理員」友善訊息，而非通用 5xx tomato page。
+    if not job.svg_url:
+        raise BadRequestError("此任務無 SVG 檔案")
+
+    try:
+        from reportlab.graphics import renderPDF
+        from reportlab.lib.units import cm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas as rl_canvas
+
+        from print_batch.service import _render_svg_with_fallbacks
+    except ImportError as e:
+        raise BadRequestError(
+            "PDF 引擎未就緒（缺 reportlab/svglib/cairosvg）。"
+            "請執行 pip install svglib reportlab Pillow cairosvg"
+        ) from e
+
+    w_cm = float(job.canvas_w_cm)
+    h_cm = float(job.canvas_h_cm)
+    drawing, png_bytes = await _render_svg_with_fallbacks(job.svg_url, w_cm, h_cm)
+    if drawing is None and png_bytes is None:
+        raise BadRequestError("SVG 渲染失敗（svglib 與 cairosvg 皆無法解析此檔案）")
+
+    page_w_cm = w_cm + 2 * _PDF_MARGIN_CM
+    page_h_cm = h_cm + 2 * _PDF_MARGIN_CM
+    target_w_pt = w_cm * cm
+    target_h_pt = h_cm * cm
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(page_w_cm * cm, page_h_cm * cm))
+    x_pt = _PDF_MARGIN_CM * cm
+    y_pt = _PDF_MARGIN_CM * cm  # ReportLab Y 軸自下而上
+    if drawing is not None:
+        # svg2rlg Drawing 的 width/height 是 SVG viewBox 的 user units（不等於 PDF point）。
+        # 必須縮放，否則向量內容尺寸 ≠ canvas 尺寸（會與 PNG fallback 結果不一致）。
+        if not (drawing.width and drawing.height):
+            # 0 維 Drawing 代表 SVG 解析異常（empty 或 viewBox 缺失）。
+            # 不能靜默放掉縮放再渲染（會輸出沒被縮放的爛 PDF），直接走錯誤路徑。
+            raise BadRequestError(
+                "SVG 渲染失敗（svglib 解析後 Drawing 維度為 0，可能 viewBox 缺失或檔案損毀）"
+            )
+        sx = target_w_pt / float(drawing.width)
+        sy = target_h_pt / float(drawing.height)
+        drawing.scale(sx, sy)  # 真正影響 transform matrix；下兩行只是同步 metadata
+        drawing.width = target_w_pt
+        drawing.height = target_h_pt
+        renderPDF.draw(drawing, c, x_pt, y_pt)
+    else:
+        img = ImageReader(io.BytesIO(png_bytes))
+        c.drawImage(img, x_pt, y_pt, width=target_w_pt, height=target_h_pt)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
 
 
 async def post_process(

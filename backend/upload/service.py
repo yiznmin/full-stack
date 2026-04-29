@@ -21,7 +21,9 @@ def _firebase_download_url(bucket_name: str, path: str) -> str:
     return f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/{encoded}?alt=media"
 
 
-def generate_public_signed_url(prefix: str, filename: str, content_type: str = "image/jpeg") -> dict:
+def generate_public_signed_url(
+    prefix: str, filename: str, content_type: str = "image/jpeg",
+) -> dict:
     """前台會看到的公開圖片（商品圖、案例圖）— 回 Firebase download URL。"""
     bucket = get_bucket()
     name = _safe_name(filename)
@@ -41,7 +43,9 @@ def generate_public_signed_url(prefix: str, filename: str, content_type: str = "
     }
 
 
-def generate_private_signed_url(prefix: str, filename: str, content_type: str = "image/jpeg") -> dict:
+def generate_private_signed_url(
+    prefix: str, filename: str, content_type: str = "image/jpeg",
+) -> dict:
     """私有檔案（用戶客製照片）— 不回公開 URL，只回 firebase_path。"""
     bucket = get_bucket()
     name = _safe_name(filename)

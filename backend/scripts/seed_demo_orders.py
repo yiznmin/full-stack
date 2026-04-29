@@ -8,18 +8,22 @@
 import asyncio
 import os
 import sys
-import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import core._windows_compat  # noqa: F401, E402
+
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from sqlalchemy import delete, select  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 # Import all models with FK targets used by orders / order_items
 import auth.models  # noqa: F401, E402
@@ -28,7 +32,6 @@ import custom.models  # noqa: F401, E402
 import discount.models  # noqa: F401, E402
 import product.models  # noqa: F401, E402
 import production.models  # noqa: F401, E402
-
 from auth.models import User  # noqa: E402
 from core.config import settings  # noqa: E402
 from orders.models import (  # noqa: E402
@@ -253,10 +256,10 @@ async def seed(db: AsyncSession, admin_user: User) -> None:
 
     await db.commit()
     print("Seeded 4 demo orders:")
-    print(f"  PL-DEMO-000001  pending_payment")
-    print(f"  PL-DEMO-000002  paid")
-    print(f"  PL-DEMO-000003  refund_processing")
-    print(f"  PL-DEMO-000004  completed")
+    print("  PL-DEMO-000001  pending_payment")
+    print("  PL-DEMO-000002  paid")
+    print("  PL-DEMO-000003  refund_processing")
+    print("  PL-DEMO-000004  completed")
 
 
 async def main():

@@ -829,3 +829,197 @@ async def test_smooth_contour_unauthenticated(client: AsyncClient, db):
         f"{JOBS_URL}/{uuid.uuid4()}{SMOOTH_CONTOUR_URL_SUFFIX}", json=SMOOTH_CONTOUR_BODY
     )
     assert res.status_code == 401
+
+
+# ── GET /admin/production/jobs/{id}/export-pdf ────────────────────────────────
+
+EXPORT_PDF_URL_SUFFIX = "/export-pdf"
+
+
+async def _create_completed_job(client, db, *, with_svg=True) -> dict:
+    """Helper：建立 image → 直接在 DB 把 production_job seed 成 completed + svg_url。"""
+    from production.models import ProductionJob
+
+    image = await _create_image(client, db)
+    job = ProductionJob(
+        image_id=uuid.UUID(image["id"]),
+        status="completed",
+        approved=True,
+        detail="standard",
+        difficulty="beginner",
+        mode="standard",
+        canvas_w_cm=30,
+        canvas_h_cm=40,
+        min_brush_diam_cm=1.0,
+        svg_url=(
+            "https://storage.googleapis.com/test-bucket/"
+            "production_jobs/test_job/template.svg"
+        ) if with_svg else None,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return {"id": str(job.id)}
+
+
+def _read_pdf_mediabox(pdf_bytes: bytes) -> tuple[float, float]:
+    """Decode the MediaBox of page 1 from raw PDF bytes via pypdf."""
+    import io as _io
+
+    from pypdf import PdfReader
+    reader = PdfReader(_io.BytesIO(pdf_bytes))
+    box = reader.pages[0].mediabox
+    # mediabox 單位 = pt
+    return float(box.width), float(box.height)
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_ok_svglib_path(client: AsyncClient, db):
+    """svglib 路徑：頁面尺寸 = (canvas + 2*5cm)；Drawing.scale() 必須被呼叫並真的套用 transform。"""
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.lib.units import cm
+
+    job = await _create_completed_job(client, db)
+    # Drawing 預設 viewBox 為 100×100 user units —
+    # 若 service 沒呼叫 drawing.scale，transform matrix 會維持 identity，
+    # PDF 內向量尺寸只會是 100pt（≈ 3.5cm）而不是 30cm
+    fake_drawing = Drawing(100, 100)
+
+    # ReportLab 的 attrmap 不允許直接賦值 fake_drawing.scale = spy
+    # 改用 patch.object 在 Drawing class 層級監控（仍保留 wraps 真實執行）
+    with patch(
+        "print_batch.service._render_svg_with_fallbacks",
+        return_value=(fake_drawing, None),
+    ), patch.object(
+        Drawing, "scale", autospec=True, side_effect=Drawing.scale,
+    ) as spy_scale:
+        res = await client.get(f"{JOBS_URL}/{job['id']}{EXPORT_PDF_URL_SUFFIX}")
+
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/pdf"
+    assert "filename=" in res.headers.get("content-disposition", "")
+    assert res.content[:4] == b"%PDF"
+
+    # 頁面尺寸 = (30 + 10)cm × (40 + 10)cm
+    w_pt, h_pt = _read_pdf_mediabox(res.content)
+    assert abs(w_pt - 40 * cm) < 0.5, f"page width {w_pt}pt ≠ 40cm"
+    assert abs(h_pt - 50 * cm) < 0.5, f"page height {h_pt}pt ≠ 50cm"
+
+    # *核心 regression*：drawing.scale() 必須被呼叫，否則 PDF 內向量尺寸不對
+    assert spy_scale.called, "drawing.scale 未被呼叫 — PDF 內向量尺寸會異常"
+    # autospec 的 call_args.args 第 0 位是 self（Drawing 實例），1, 2 是 sx, sy
+    call_args = spy_scale.call_args.args
+    assert len(call_args) == 3, f"drawing.scale 預期 (self, sx, sy)，得到 {call_args}"
+    _self, sx, sy = call_args
+    assert abs(sx - (30 * cm / 100)) < 0.01, f"sx={sx} 與預期 {30 * cm / 100} 不符"
+    assert abs(sy - (40 * cm / 100)) < 0.01, f"sy={sy} 與預期 {40 * cm / 100} 不符"
+
+    # transform matrix 應已被套用（非 identity）
+    # ReportLab Drawing.transform 是 6-tuple (a, b, c, d, e, f)；scale 後 a, d 不為 1
+    assert fake_drawing.transform[0] != 1.0 or fake_drawing.transform[3] != 1.0, \
+        "transform matrix 仍是 identity，scale 沒實際套用"
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_ok_cairosvg_fallback(client: AsyncClient, db):
+    """cairosvg 路徑：頁面尺寸與 svglib 路徑一致（兩個 fallback 結果不能不一樣）。"""
+    import io as _io
+
+    from PIL import Image
+    from reportlab.lib.units import cm
+
+    job = await _create_completed_job(client, db)
+    # 用 Pillow 產出有效的 8×8 灰階 PNG bytes
+    png_buf = _io.BytesIO()
+    Image.new("RGB", (8, 8), color=(128, 128, 128)).save(png_buf, format="PNG")
+    png_bytes = png_buf.getvalue()
+
+    with patch(
+        "print_batch.service._render_svg_with_fallbacks",
+        return_value=(None, png_bytes),
+    ):
+        res = await client.get(f"{JOBS_URL}/{job['id']}{EXPORT_PDF_URL_SUFFIX}")
+
+    assert res.status_code == 200
+    assert res.content[:4] == b"%PDF"
+    w_pt, h_pt = _read_pdf_mediabox(res.content)
+    assert abs(w_pt - 40 * cm) < 0.5
+    assert abs(h_pt - 50 * cm) < 0.5
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_status_not_completed(client: AsyncClient, db):
+    """status != completed 回 400."""
+    from production.models import ProductionJob
+
+    image = await _create_image(client, db)
+    job = ProductionJob(
+        image_id=uuid.UUID(image["id"]),
+        status="pending",
+        detail="standard", difficulty="beginner", mode="standard",
+        canvas_w_cm=30, canvas_h_cm=40, min_brush_diam_cm=1.0,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    res = await client.get(f"{JOBS_URL}/{job.id}{EXPORT_PDF_URL_SUFFIX}")
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_no_svg(client: AsyncClient, db):
+    """status=completed 但 svg_url 為 None 回 400."""
+    job = await _create_completed_job(client, db, with_svg=False)
+    res = await client.get(f"{JOBS_URL}/{job['id']}{EXPORT_PDF_URL_SUFFIX}")
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_render_failure(client: AsyncClient, db):
+    """svglib 與 cairosvg 都失敗 → 400."""
+    job = await _create_completed_job(client, db)
+    with patch(
+        "print_batch.service._render_svg_with_fallbacks",
+        return_value=(None, None),
+    ):
+        res = await client.get(f"{JOBS_URL}/{job['id']}{EXPORT_PDF_URL_SUFFIX}")
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_zero_dim_drawing(client: AsyncClient, db):
+    """Drawing 維度為 0（svglib 解析異常）→ 400，避免靜默產出未縮放的爛 PDF."""
+    from reportlab.graphics.shapes import Drawing
+
+    job = await _create_completed_job(client, db)
+    bad_drawing = Drawing(0, 0)
+
+    with patch(
+        "print_batch.service._render_svg_with_fallbacks",
+        return_value=(bad_drawing, None),
+    ):
+        res = await client.get(f"{JOBS_URL}/{job['id']}{EXPORT_PDF_URL_SUFFIX}")
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_not_found(client: AsyncClient, db):
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    res = await client.get(f"{JOBS_URL}/{uuid.uuid4()}{EXPORT_PDF_URL_SUFFIX}")
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_non_admin(client: AsyncClient, db):
+    await _make_customer(client, db)
+    await _login(client, CUSTOMER_USER["email"], CUSTOMER_USER["password"])
+    res = await client.get(f"{JOBS_URL}/{uuid.uuid4()}{EXPORT_PDF_URL_SUFFIX}")
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_unauthenticated(client: AsyncClient, db):
+    res = await client.get(f"{JOBS_URL}/{uuid.uuid4()}{EXPORT_PDF_URL_SUFFIX}")
+    assert res.status_code == 401
