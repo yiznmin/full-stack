@@ -72,6 +72,11 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-products-edit',
         component: () => import('@/features/products/pages/ProductFormPage.vue'),
       },
+      {
+        path: 'orders',
+        name: 'admin-orders',
+        component: () => import('@/features/orders/pages/OrdersListPage.vue'),
+      },
     ],
   },
   {
