@@ -299,6 +299,14 @@ async def list_products(
     result = await db.execute(query)
     products = result.scalars().all()
 
+    series_ids = {p.series_id for p in products if p.series_id}
+    series_name_by_id: dict[UUID, str] = {}
+    if series_ids:
+        series_result = await db.execute(
+            select(ProductSeries).where(ProductSeries.id.in_(series_ids))
+        )
+        series_name_by_id = {s.id: s.name for s in series_result.scalars().all()}
+
     items = []
     for p in products:
         tags = await _get_product_tags(db, p.id)
@@ -310,6 +318,7 @@ async def list_products(
             **p.__dict__,
             "tags": tags,
             "variant_count": variant_count,
+            "series_name": series_name_by_id.get(p.series_id) if p.series_id else None,
         })
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -409,6 +418,36 @@ async def delete_product_image(
         raise NotFoundError("商品圖片不存在")
     await db.delete(image)
     await db.commit()
+
+
+async def list_product_images(
+    db: AsyncSession, product_id: UUID
+) -> list[ProductImage]:
+    await _get_product_or_404(db, product_id)
+    result = await db.execute(
+        select(ProductImage)
+        .where(ProductImage.product_id == product_id)
+        .order_by(ProductImage.sort_order)
+    )
+    return list(result.scalars().all())
+
+
+async def list_product_variants(
+    db: AsyncSession, product_id: UUID
+) -> list[dict]:
+    await _get_product_or_404(db, product_id)
+    result = await db.execute(
+        select(ProductVariant).where(ProductVariant.product_id == product_id)
+    )
+    raw_variants = list(result.scalars().all())
+    if not raw_variants:
+        return []
+    job_ids = [v.production_job_id for v in raw_variants]
+    jobs_result = await db.execute(
+        select(ProductionJob).where(ProductionJob.id.in_(job_ids))
+    )
+    jobs_by_id = {j.id: j for j in jobs_result.scalars().all()}
+    return [_variant_with_job(v, jobs_by_id.get(v.production_job_id)) for v in raw_variants]
 
 
 async def reorder_product_images(

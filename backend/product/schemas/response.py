@@ -94,9 +94,13 @@ class VariantResponse(BaseModel):
     price_formula_base: Decimal
     is_active: bool
     created_at: datetime
-    job_spec: VariantJobSpecResponse
+    job_spec: VariantJobSpecResponse | None
 
     model_config = {"from_attributes": True}
+
+
+class VariantListResponse(BaseModel):
+    items: list[VariantResponse]
 
 
 class ProductBriefResponse(BaseModel):
@@ -104,9 +108,12 @@ class ProductBriefResponse(BaseModel):
     title: str
     status: ProductStatusEnum
     cover_image_url: str
+    series_id: UUID | None
+    series_name: str | None
     variant_count: int
     tags: list[TagBriefResponse]
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 

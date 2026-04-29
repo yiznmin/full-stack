@@ -66,12 +66,12 @@ watch(existing, (next) => {
   if (next) {
     setValues({
       title: next.title,
-      description: next.description,
+      description: next.description ?? '',
       cover_image_url: next.cover_image_url,
       series_id: next.series_id,
-      series_order: next.series_order,
+      series_order: next.series_order ?? 0,
       status: next.status,
-      tag_ids: next.tag_ids,
+      tag_ids: (next.tags ?? []).map((t) => t.id),
     })
   }
 }, { immediate: true })

@@ -66,12 +66,12 @@ export interface ProductsListParams {
 export interface ProductDetail {
   id: string
   title: string
-  description: string
+  description: string | null
   cover_image_url: string
   series_id: string | null
-  series_order: number
+  series_order: number | null
   status: ProductStatus
-  tag_ids: string[]
+  tags: { id: string; name: string }[]
   created_at: string
   updated_at: string
 }

@@ -36,6 +36,7 @@ from product.schemas.response import (
     TagResponse,
     ThemeListResponse,
     ThemeResponse,
+    VariantListResponse,
     VariantResponse,
 )
 
@@ -292,6 +293,19 @@ async def delete_product(
 
 # ── Product images ────────────────────────────────────────────────────────────
 
+@router.get(
+    "/admin/products/{product_id}/images",
+    response_model=ProductImageListResponse,
+)
+async def list_images(
+    product_id: UUID,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    images = await service.list_product_images(db, product_id)
+    return {"items": images}
+
+
 @router.post(
     "/admin/products/{product_id}/images",
     response_model=ProductImageResponse,
@@ -335,6 +349,19 @@ async def reorder_images(
 
 
 # ── Product variants ──────────────────────────────────────────────────────────
+
+@router.get(
+    "/admin/products/{product_id}/variants",
+    response_model=VariantListResponse,
+)
+async def list_variants(
+    product_id: UUID,
+    _: None = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    variants = await service.list_product_variants(db, product_id)
+    return {"items": variants}
+
 
 @router.post("/admin/products/{product_id}/variants", response_model=VariantResponse)
 async def create_variant(

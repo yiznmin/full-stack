@@ -185,7 +185,7 @@ export function useReorderImagesMutation(productId: string) {
 export function useSeriesQuery() {
   return useQuery({
     queryKey: KEYS.series,
-    queryFn: listSeries,
+    queryFn: () => listSeries(),
     staleTime: 60_000,
   })
 }

@@ -60,14 +60,14 @@ const widthClass = {
           enter-to-class="opacity-100 translate-y-0"
         >
           <div
-            class="bg-paper-surface border border-line-hairline rounded-[var(--radius-md)] shadow-[0_4px_16px_rgba(43,38,32,0.08)] w-full overflow-hidden"
+            class="bg-paper-surface border border-line-hairline rounded-[var(--radius-md)] shadow-[0_4px_16px_rgba(43,38,32,0.08)] w-full max-h-[calc(100vh-2.5rem)] flex flex-col overflow-hidden"
             :class="widthClass[size ?? 'md']"
             role="dialog"
             aria-modal="true"
           >
             <header
               v-if="title || $slots.header"
-              class="flex items-center justify-between px-6 py-4 border-b border-line-hairline"
+              class="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-line-hairline"
             >
               <h2 class="font-display text-ink-strong text-[18px] leading-[26px]">
                 <slot name="header">{{ title }}</slot>
@@ -82,13 +82,13 @@ const widthClass = {
               </button>
             </header>
 
-            <div class="px-6 py-5">
+            <div class="flex-1 min-h-0 overflow-y-auto px-6 py-5">
               <slot />
             </div>
 
             <footer
               v-if="$slots.footer"
-              class="flex items-center justify-end gap-2 px-6 py-4 border-t border-line-hairline bg-paper-canvas"
+              class="flex-shrink-0 flex items-center justify-end gap-2 px-6 py-4 border-t border-line-hairline bg-paper-canvas"
             >
               <slot name="footer" />
             </footer>
