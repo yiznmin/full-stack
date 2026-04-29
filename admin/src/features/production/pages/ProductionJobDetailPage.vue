@@ -10,6 +10,7 @@ import {
   ImageOff,
   Link as LinkIcon,
   AlertTriangle,
+  Palette,
 } from 'lucide-vue-next'
 
 import Card from '@/shared/ui/Card.vue'
@@ -164,6 +165,14 @@ function fmtDateTime(iso: string | null): string {
           <Loader2 v-if="pdfDownloading" :size="14" :stroke-width="1.5" class="animate-spin" />
           <Download v-else :size="14" :stroke-width="1.5" />
           {{ pdfDownloading ? '轉換中...（最多 15 秒）' : '匯出 PDF' }}
+        </Button>
+        <Button
+          v-if="job.approved"
+          variant="secondary"
+          @click="router.push(`/admin/colors/mapping/${job.id}`)"
+        >
+          <Palette :size="14" :stroke-width="1.5" />
+          顏色對應
         </Button>
       </div>
     </header>
