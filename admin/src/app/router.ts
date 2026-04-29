@@ -82,6 +82,16 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-orders-detail',
         component: () => import('@/features/orders/pages/OrderDetailPage.vue'),
       },
+      {
+        path: 'custom-requests',
+        name: 'admin-custom-requests',
+        component: () => import('@/features/custom_requests/pages/CustomRequestsListPage.vue'),
+      },
+      {
+        path: 'custom-requests/:id',
+        name: 'admin-custom-requests-detail',
+        component: () => import('@/features/custom_requests/pages/CustomRequestDetailPage.vue'),
+      },
     ],
   },
   {
