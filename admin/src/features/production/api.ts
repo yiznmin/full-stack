@@ -221,6 +221,44 @@ export function recommendCanvasSizes(width: number, height: number, n = 3) {
   })
 }
 
+// ── F06-B Post-process ─────────────────────────────────────────────────
+
+export interface MergeColorPayload {
+  source_template_id: number
+  target_template_id: number
+}
+
+export interface EliminateBorderPayload {
+  absorbed_template_id: number
+  surviving_template_id: number
+}
+
+export interface SmoothContourPayload {
+  border_between: [number, number]
+  smoothness: number  // 1~5
+}
+
+export function mergeColor(jobId: string, payload: MergeColorPayload) {
+  return request<JobDetail>(`/admin/production/jobs/${jobId}/post-process/merge-color`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function eliminateBorder(jobId: string, payload: EliminateBorderPayload) {
+  return request<JobDetail>(`/admin/production/jobs/${jobId}/post-process/eliminate-border`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function smoothContour(jobId: string, payload: SmoothContourPayload) {
+  return request<JobDetail>(`/admin/production/jobs/${jobId}/post-process/smooth-contour`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 /** 直接觸發瀏覽器下載 PDF，無回傳值。 */
 export async function downloadJobPdf(id: string) {
   const res = await fetch(`${API}/admin/production/jobs/${id}/export-pdf`, {

@@ -5,11 +5,17 @@ import { computed, toValue } from 'vue'
 import {
   approveJob,
   createJobs,
+  eliminateBorder,
   getJob,
   listJobs,
+  mergeColor,
+  smoothContour,
   unapproveJob,
   type CreateJobsRequest,
+  type EliminateBorderPayload,
   type JobsListParams,
+  type MergeColorPayload,
+  type SmoothContourPayload,
 } from './api'
 
 export const PJ_KEYS = {
@@ -67,6 +73,32 @@ export function useUnapproveJobMutation(id: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => unapproveJob(id),
+    onSuccess: () => invalidate(qc, id),
+  })
+}
+
+// ── F06-B Post-process mutations ──────────────────────────────────────
+
+export function useMergeColorMutation(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: MergeColorPayload) => mergeColor(id, payload),
+    onSuccess: () => invalidate(qc, id),
+  })
+}
+
+export function useEliminateBorderMutation(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: EliminateBorderPayload) => eliminateBorder(id, payload),
+    onSuccess: () => invalidate(qc, id),
+  })
+}
+
+export function useSmoothContourMutation(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: SmoothContourPayload) => smoothContour(id, payload),
     onSuccess: () => invalidate(qc, id),
   })
 }

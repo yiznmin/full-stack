@@ -11,15 +11,22 @@ import {
   Link as LinkIcon,
   AlertTriangle,
   Palette,
+  Combine,
+  Eraser,
+  Spline,
 } from 'lucide-vue-next'
 
 import Card from '@/shared/ui/Card.vue'
 import Button from '@/shared/ui/Button.vue'
 
 import JobStatusBadge from '../components/JobStatusBadge.vue'
+import PostProcessDialog from '../components/PostProcessDialog.vue'
 import {
   useApproveJobMutation,
+  useEliminateBorderMutation,
   useJobQuery,
+  useMergeColorMutation,
+  useSmoothContourMutation,
   useUnapproveJobMutation,
 } from '../queries'
 import {
@@ -37,6 +44,47 @@ const jobId = computed(() => (typeof route.params.jobId === 'string' ? route.par
 const { data: job, isLoading, isError, error } = useJobQuery(jobId)
 const approveMut = useApproveJobMutation(jobId.value)
 const unapproveMut = useUnapproveJobMutation(jobId.value)
+const mergeMut = useMergeColorMutation(jobId.value)
+const eliminateMut = useEliminateBorderMutation(jobId.value)
+const smoothMut = useSmoothContourMutation(jobId.value)
+
+// Post-process dialog
+type PostProcessType = 'merge_color' | 'eliminate_border' | 'smooth_contour'
+const postProcessOpen = ref(false)
+const postProcessType = ref<PostProcessType | null>(null)
+
+function openPostProcess(t: PostProcessType) {
+  postProcessType.value = t
+  postProcessOpen.value = true
+}
+
+async function onMerge(payload: { source_template_id: number; target_template_id: number }) {
+  apiError.value = null
+  try {
+    await mergeMut.mutateAsync(payload)
+    postProcessOpen.value = false
+  } catch (e) {
+    apiError.value = (e as { message?: string }).message || '合併失敗'
+  }
+}
+async function onEliminate(payload: { absorbed_template_id: number; surviving_template_id: number }) {
+  apiError.value = null
+  try {
+    await eliminateMut.mutateAsync(payload)
+    postProcessOpen.value = false
+  } catch (e) {
+    apiError.value = (e as { message?: string }).message || '消邊界失敗'
+  }
+}
+async function onSmooth(payload: { border_between: [number, number]; smoothness: number }) {
+  apiError.value = null
+  try {
+    await smoothMut.mutateAsync(payload)
+    postProcessOpen.value = false
+  } catch (e) {
+    apiError.value = (e as { message?: string }).message || '平滑失敗'
+  }
+}
 
 const apiError = ref<string | null>(null)
 const pdfDownloading = ref(false)
@@ -247,10 +295,26 @@ function fmtDateTime(iso: string | null): string {
         </Card>
 
         <Card v-if="job.palette_json && job.palette_json.length > 0">
-          <h2 class="font-display text-ink-strong text-[18px] leading-[26px] mb-3">
-            調色盤
-            <span class="ml-2 text-[12px] text-ink-muted font-sans">{{ job.palette_json.length }} 色</span>
-          </h2>
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 class="font-display text-ink-strong text-[18px] leading-[26px]">
+              調色盤
+              <span class="ml-2 text-[12px] text-ink-muted font-sans">{{ job.palette_json.length }} 色</span>
+            </h2>
+            <div v-if="job.status === 'completed'" class="flex items-center gap-1">
+              <Button variant="secondary" @click="openPostProcess('merge_color')">
+                <Combine :size="12" :stroke-width="1.5" />
+                合併色塊
+              </Button>
+              <Button variant="secondary" @click="openPostProcess('eliminate_border')">
+                <Eraser :size="12" :stroke-width="1.5" />
+                消邊界
+              </Button>
+              <Button variant="secondary" @click="openPostProcess('smooth_contour')">
+                <Spline :size="12" :stroke-width="1.5" />
+                輪廓平滑
+              </Button>
+            </div>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div
               v-for="c in job.palette_json"
@@ -263,13 +327,16 @@ function fmtDateTime(iso: string | null): string {
               />
               <div class="flex-1 min-w-0">
                 <div class="text-[12px] font-medium text-ink-strong">
-                  色號 {{ c.template_id }}
+                  #{{ c.template_id }}
                   <span class="ml-2 font-mono text-ink-muted">{{ c.hex }}</span>
                 </div>
                 <div v-if="c.percent" class="text-[11px] text-ink-muted">{{ c.percent.toFixed(1) }}%</div>
               </div>
             </div>
           </div>
+          <p class="mt-3 text-[11px] text-ink-muted">
+            合併 / 消邊界會把 approved 退回 false，需重新審核；輪廓平滑只改 SVG，approved 不變。
+          </p>
         </Card>
       </div>
 
@@ -321,5 +388,16 @@ function fmtDateTime(iso: string | null): string {
         </Card>
       </div>
     </div>
+
+    <PostProcessDialog
+      :open="postProcessOpen"
+      :type="postProcessType"
+      :palette="job.palette_json ?? []"
+      :pending="mergeMut.isPending.value || eliminateMut.isPending.value || smoothMut.isPending.value"
+      @close="postProcessOpen = false"
+      @confirm-merge="onMerge"
+      @confirm-eliminate="onEliminate"
+      @confirm-smooth="onSmooth"
+    />
   </template>
 </template>
