@@ -39,6 +39,8 @@ const svgContainerRef = ref<HTMLDivElement | null>(null)
 const svgLoading = ref(false)
 const svgError = ref<string | null>(null)
 const zoom = ref(1) // 1 = 容器寬度；> 1 = 放大；範圍 0.5 ~ 5
+/** polygon_id → fill 屬性（pbn_gen 寫的 25%-mixed 顯示色），給佇列 chip 顯示原色用 */
+const polygonFills = ref<Map<string, string>>(new Map())
 let cleanupClickHandler: (() => void) | null = null
 
 watch(
@@ -85,13 +87,17 @@ watch(
       // 移除舊 click handler（若有）
       if (cleanupClickHandler) cleanupClickHandler()
 
-      // 對所有 polygon attach click：把 id="rN" 的 polygon 點擊事件 bubble 到容器
+      // 對所有 polygon attach click + 紀錄 fill 給佇列顯示
       const polygons = container.querySelectorAll('polygon[id]')
+      const fills = new Map<string, string>()
       polygons.forEach((poly) => {
         const el = poly as SVGPolygonElement
         el.style.cursor = 'pointer'
         el.style.transition = 'opacity 0.15s'
+        const fill = el.getAttribute('fill') || ''
+        if (el.id) fills.set(el.id, fill)
       })
+      polygonFills.value = fills
 
       const handler = (ev: Event) => {
         const target = ev.target as Element
@@ -101,6 +107,8 @@ watch(
       }
       container.addEventListener('click', handler)
       cleanupClickHandler = () => container.removeEventListener('click', handler)
+      // 套用既有狀態（queue 通常空，但 SVG reload 後也要同步 active）
+      refreshHighlights()
     } catch (e) {
       svgError.value = (e as Error).message
     } finally {
@@ -139,7 +147,6 @@ function onPolygonClick(polygonId: string) {
   if (!props.type) return
   if (props.type === 'merge_color') {
     polygon1.value = polygonId
-    highlightPolygons([polygonId])
   } else {
     // eliminate_border：依序填 p1/p2，第三次 click 重置
     if (!polygon1.value) {
@@ -152,25 +159,49 @@ function onPolygonClick(polygonId: string) {
       polygon2.value = ''
       survivor.value = ''
     }
-    highlightPolygons([polygon1.value, polygon2.value].filter(Boolean))
   }
   errors.value = {}
+  refreshHighlights()
 }
 
-function highlightPolygons(ids: string[]) {
+/** 收集當前選擇 polygon ids（active 狀態）。 */
+function _activeIds(): string[] {
+  return [polygon1.value, polygon2.value].filter(Boolean)
+}
+
+/** 收集已加入佇列的 polygon ids（queued 狀態）— merge target + eliminate absorbed 都算。 */
+function _queuedIds(): string[] {
+  return queue.value.flatMap((op) =>
+    op.op === 'merge_color'
+      ? [op.polygon_id]
+      : [op.absorbed_polygon_id, op.surviving_polygon_id],
+  )
+}
+
+/** 三態高亮：active（當前選擇，亮橘實線粗框）、queued（已排佇列，淡橘虛線）、idle（原樣）。 */
+function refreshHighlights() {
   const container = svgContainerRef.value
   if (!container) return
+  const active = new Set(_activeIds())
+  const queued = new Set(_queuedIds())
   const polys = container.querySelectorAll('polygon[id]')
   polys.forEach((p) => {
     const el = p as SVGPolygonElement
-    if (ids.includes(el.id)) {
+    if (active.has(el.id)) {
       el.style.stroke = '#FF6600'
       el.style.strokeWidth = '4'
+      el.style.strokeDasharray = ''
+      el.style.opacity = '1'
+    } else if (queued.has(el.id)) {
+      el.style.stroke = '#FF9933'
+      el.style.strokeWidth = '3'
+      el.style.strokeDasharray = '4 3'  // 虛線區別
       el.style.opacity = '1'
     } else {
       el.style.stroke = '#AAAAAA'
       el.style.strokeWidth = '1'
-      el.style.opacity = ids.length ? '0.6' : '1'
+      el.style.strokeDasharray = ''
+      el.style.opacity = (active.size || queued.size) ? '0.65' : '1'
     }
   })
 }
@@ -276,17 +307,18 @@ function addToQueue() {
       surviving_polygon_id: surviving,
     })
   }
-  // 清空當前選擇，方便下一個動作
+  // 清空當前選擇，方便下一個動作；queued 狀態的格子保持高亮
   polygon1.value = ''
   polygon2.value = ''
   targetTemplateId.value = ''
   survivor.value = ''
   errors.value = {}
-  highlightPolygons([])
+  refreshHighlights()
 }
 
 function removeFromQueue(idx: number) {
   queue.value.splice(idx, 1)
+  refreshHighlights()
 }
 
 function submitBatch() {
@@ -294,13 +326,32 @@ function submitBatch() {
   emit('confirmBatch', [...queue.value])
 }
 
-/** 給已加入佇列的 op 顯示一行人類可讀描述。 */
-function describeOp(op: BatchOperation): string {
+/** 佇列 chip 顯示資訊：被改色那格 + 原色 + 目標色 + 操作類型文字。 */
+function opDisplay(op: BatchOperation): {
+  changedPolygon: string
+  fromFill: string
+  toFill: string
+  toLabel: string
+  kind: string
+} {
   if (op.op === 'merge_color') {
     const c = props.palette.find((p) => p.template_id === op.target_template_id)
-    return `合併 ${op.polygon_id} → #${op.target_template_id} ${c?.hex ?? ''}`
+    return {
+      changedPolygon: op.polygon_id,
+      fromFill: polygonFills.value.get(op.polygon_id) || '#FFFFFF',
+      toFill: c?.hex || '#000000',
+      toLabel: `#${op.target_template_id}`,
+      kind: '合併',
+    }
   }
-  return `消邊界 ${op.absorbed_polygon_id} → ${op.surviving_polygon_id}`
+  // eliminate_border：absorbed 變成 surviving 的色
+  return {
+    changedPolygon: op.absorbed_polygon_id,
+    fromFill: polygonFills.value.get(op.absorbed_polygon_id) || '#FFFFFF',
+    toFill: polygonFills.value.get(op.surviving_polygon_id) || '#000000',
+    toLabel: op.surviving_polygon_id,
+    kind: '消邊界',
+  }
 }
 </script>
 
@@ -429,19 +480,40 @@ function describeOp(op: BatchOperation): string {
         </Button>
       </div>
 
-      <!-- 佇列 -->
+      <!-- 佇列：每筆顯示 polygon_id + 原色 → 目標色 -->
       <div v-if="queue.length > 0" class="border-t border-line-hairline pt-3">
         <Label>動作佇列（{{ queue.length }} 個）</Label>
-        <ul class="mt-1 space-y-1">
+        <ul class="mt-1 space-y-1.5">
           <li
             v-for="(op, idx) in queue"
             :key="idx"
-            class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-surface-muted text-[12px]"
+            class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-surface-muted text-[12px]"
           >
-            <span class="font-mono truncate">{{ idx + 1 }}. {{ describeOp(op) }}</span>
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <span class="text-ink-muted font-mono shrink-0">{{ idx + 1 }}.</span>
+              <span class="text-ink-default shrink-0">{{ opDisplay(op).kind }}</span>
+              <span
+                class="font-mono px-1.5 rounded bg-accent/10 text-accent shrink-0"
+                :title="`改色目標：${opDisplay(op).changedPolygon}`"
+              >
+                {{ opDisplay(op).changedPolygon }}
+              </span>
+              <span
+                class="inline-block w-5 h-5 rounded border border-line-hairline shrink-0"
+                :style="{ backgroundColor: opDisplay(op).fromFill }"
+                :title="`原色 ${opDisplay(op).fromFill}`"
+              />
+              <span class="text-ink-muted shrink-0">→</span>
+              <span
+                class="inline-block w-5 h-5 rounded border border-line-hairline shrink-0"
+                :style="{ backgroundColor: opDisplay(op).toFill }"
+                :title="`目標 ${opDisplay(op).toFill}`"
+              />
+              <span class="text-ink-muted font-mono truncate">{{ opDisplay(op).toLabel }}</span>
+            </div>
             <button
               type="button"
-              class="text-ink-muted hover:text-state-danger"
+              class="text-ink-muted hover:text-state-danger shrink-0"
               :disabled="pending"
               @click="removeFromQueue(idx)"
             >
