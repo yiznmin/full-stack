@@ -37,6 +37,7 @@ const errors = ref<Record<string, string>>({})
 const svgContainerRef = ref<HTMLDivElement | null>(null)
 const svgLoading = ref(false)
 const svgError = ref<string | null>(null)
+const zoom = ref(1) // 1 = 容器寬度；> 1 = 放大；範圍 0.5 ~ 5
 let cleanupClickHandler: (() => void) | null = null
 
 watch(
@@ -49,6 +50,7 @@ watch(
       survivor.value = ''
       errors.value = {}
       svgError.value = null
+      zoom.value = 1
     }
   },
 )
@@ -71,12 +73,11 @@ watch(
       const svgText = await res.text()
       container.innerHTML = svgText
 
-      // 強制 SVG 自適應容器寬度
+      // 強制 SVG 自適應容器寬度（zoom 透過 width % 放大）
       const svgEl = container.querySelector('svg')
       if (svgEl) {
-        svgEl.setAttribute('width', '100%')
+        svgEl.setAttribute('width', `${zoom.value * 100}%`)
         svgEl.removeAttribute('height')
-        svgEl.style.maxHeight = '480px'
       }
 
       // 移除舊 click handler（若有）
@@ -105,6 +106,32 @@ watch(
     }
   },
 )
+
+// 監聽 zoom 變化 → 直接改 SVG 的 width 百分比；overflow:auto 容器自動處理捲軸
+watch(zoom, (z) => {
+  const container = svgContainerRef.value
+  if (!container) return
+  const svgEl = container.querySelector('svg')
+  if (svgEl) svgEl.setAttribute('width', `${z * 100}%`)
+})
+
+function zoomIn() {
+  zoom.value = Math.min(5, +(zoom.value + 0.5).toFixed(2))
+}
+function zoomOut() {
+  zoom.value = Math.max(0.5, +(zoom.value - 0.5).toFixed(2))
+}
+function zoomReset() {
+  zoom.value = 1
+}
+
+// Ctrl+滾輪放大縮小（在 SVG 容器內）
+function onWheel(e: WheelEvent) {
+  if (!e.ctrlKey) return
+  e.preventDefault()
+  if (e.deltaY < 0) zoomIn()
+  else zoomOut()
+}
 
 function onPolygonClick(polygonId: string) {
   if (!props.type) return
@@ -243,13 +270,43 @@ function submit() {
 
       <!-- SVG 預覽（template.svg inline，可點 polygon） -->
       <div v-if="svgUrl">
-        <div class="flex items-center gap-1 text-[12px] text-ink-muted mb-1">
-          <Crosshair :size="12" :stroke-width="1.5" />
-          <span>點選下方 template 上的格子</span>
+        <div class="flex items-center justify-between text-[12px] text-ink-muted mb-1">
+          <div class="flex items-center gap-1">
+            <Crosshair :size="12" :stroke-width="1.5" />
+            <span>點選 template 上的格子</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="px-2 py-0.5 rounded border border-line-hairline hover:bg-surface-muted text-ink-default"
+              title="縮小"
+              @click="zoomOut"
+            >
+              −
+            </button>
+            <span class="px-1 font-mono tabular-nums w-12 text-center">{{ Math.round(zoom * 100) }}%</span>
+            <button
+              type="button"
+              class="px-2 py-0.5 rounded border border-line-hairline hover:bg-surface-muted text-ink-default"
+              title="放大"
+              @click="zoomIn"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              class="ml-1 px-2 py-0.5 rounded border border-line-hairline hover:bg-surface-muted text-ink-default text-[11px]"
+              title="重設"
+              @click="zoomReset"
+            >
+              重設
+            </button>
+          </div>
         </div>
         <div
           class="rounded-[var(--radius-sm)] border border-line-hairline bg-paper-canvas overflow-auto relative"
-          style="min-height: 200px; max-height: 480px"
+          style="min-height: 300px; max-height: 600px"
+          @wheel="onWheel"
         >
           <div ref="svgContainerRef" class="block" />
           <div
@@ -260,6 +317,7 @@ function submit() {
           </div>
           <p v-if="svgError" class="p-2 text-[11px] text-state-danger">{{ svgError }}</p>
         </div>
+        <p class="mt-0.5 text-[11px] text-ink-muted">提示：按 Ctrl + 滑鼠滾輪也可縮放</p>
       </div>
 
       <!-- 已選格子 -->
