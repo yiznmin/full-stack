@@ -119,6 +119,102 @@ def generate_standard(
     }
 
 
+def apply_color_replacement(
+    snapped_rgb_path: str,
+    output_dir: str,
+    *,
+    src_rgb: tuple[int, int, int],
+    tgt_rgb: tuple[int, int, int],
+    canvas_w_cm: float,
+    canvas_h_cm: float,
+    min_brush_diam_cm: float,
+    min_ratio_multiplier: float = 1.0,
+) -> dict[str, Any]:
+    """post-process A/B 共用：把 src_rgb 像素全 replace 成 tgt_rgb，重跑 SVG/filled。
+
+    沿用 admin_production.md §1.6：
+    - A 格子合併 / B 消除邊界 都是 pixel replacement
+    - 改後重跑 PbnGen.output_to_svg + output_filled_from_template
+    - **重要**：output_to_svg 會依面積大小重編號 template_id，回傳的 palette_data 是新編號
+
+    本路徑**不**呼叫 KMeans（cluster_colors）— output_to_svg 直接從 self.image 用
+    `getUniqueColorsMasks()` 推 unique colors。所以 PbnGen 的 num_colors 參數對輸出
+    無影響（且若 < min_num_colors=10 會被 constructor 加 +10，更不可信）。傳一個
+    任意非 None 值跳過 knee 偵測即可。
+
+    回傳 {svg_path, filled_path, snapped_rgb_path, palette_data, num_colors_used,
+          image_width, image_height, min_radius_px}
+    """
+    import cv2  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+    from pbn_gen import PbnGen  # noqa: PLC0415
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1. 讀 snapped_rgb.png（之前我們存時是 BGR 格式，這裡讀回 BGR 後轉 RGB）
+    img_bgr = cv2.imdecode(np.fromfile(snapped_rgb_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img_bgr is None:
+        raise ValueError(f"無法讀取 snapped_rgb 圖片：{snapped_rgb_path}")
+
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    img_h, img_w = img_rgb.shape[:2]
+
+    # 2. pixel replacement：mask = src_rgb 的所有像素 → tgt_rgb
+    src_arr = np.array(src_rgb, dtype=np.uint8)
+    tgt_arr = np.array(tgt_rgb, dtype=np.uint8)
+    mask = np.all(img_rgb == src_arr, axis=2)
+    img_rgb[mask] = tgt_arr
+
+    # 3. 構造 PbnGen，餵改完的圖（BGR 格式，constructor 內部會轉 RGB）
+    # num_colors 必須非 None 才能 skip knee detection；具體值不影響 output_to_svg。
+    img_bgr_modified = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+    pbn = PbnGen(
+        img_bgr_modified,
+        num_colors=1,  # placeholder — output_to_svg 從 self.image 推 unique colors
+        pruningThreshold=1e-4,
+        fixed_palette=None,
+    )
+
+    # 4. 算 min_radius_px（與 generate_standard 一致）
+    min_radius_px = (
+        _calc_min_radius_px(canvas_w_cm, img_w, min_brush_diam_cm) * min_ratio_multiplier
+    )
+
+    # 5. 跑 output_to_svg → 新 SVG（會重編號 template_id）
+    svg_path = os.path.join(output_dir, "template.svg")
+    palette_json_path = os.path.join(output_dir, "palette.json")
+    palette_raw = pbn.output_to_svg(
+        svg_path,
+        palette_json_path,
+        min_radius_px=min_radius_px,
+        canvas_w_cm=canvas_w_cm,
+        canvas_h_cm=canvas_h_cm,
+    )
+
+    # 6. 輸出新 filled
+    filled_path = os.path.join(output_dir, "filled_template.png")
+    pbn.output_filled_from_template(filled_path)
+
+    # 7. 額外存新 snapped_rgb（output_to_svg 跑完內部 _smooth_quantized 後產生的版本）
+    snapped_out_path = os.path.join(output_dir, "snapped_rgb.png")
+    snapped = pbn._snapped_rgb
+    cv2.imwrite(snapped_out_path, cv2.cvtColor(snapped, cv2.COLOR_RGB2BGR))
+
+    # 8. 補 hex/pixels/percent
+    palette_data = _build_palette_data(palette_raw, snapped, img_w, img_h)
+
+    return {
+        "svg_path": svg_path,
+        "filled_path": filled_path,
+        "snapped_rgb_path": snapped_out_path,
+        "palette_data": palette_data,
+        "num_colors_used": len(palette_data),
+        "image_width": img_w,
+        "image_height": img_h,
+        "min_radius_px": round(min_radius_px, 3),
+    }
+
+
 def _crop_to_canvas_ratio(img_bgr, canvas_w_cm: float, canvas_h_cm: float):
     """中央裁切成符合畫布比例（沿用 run.py:89 crop_to_canvas_ratio，不含 mask 路徑）。"""
     ih, iw = img_bgr.shape[:2]
@@ -225,10 +321,11 @@ def resolve_engine_params(job: Any) -> dict[str, Any]:
 
 
 __all__ = [
+    "DETAIL_PRESETS",
+    "DIFFICULTY_LEVELS",
+    "apply_color_replacement",
     "generate_standard",
     "resolve_engine_params",
-    "DIFFICULTY_LEVELS",
-    "DETAIL_PRESETS",
 ]
 
 

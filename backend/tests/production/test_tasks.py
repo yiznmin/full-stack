@@ -311,28 +311,6 @@ async def test_run_production_job_no_image_id(db):
     assert mock_engine.call_count == 0
 
 
-@pytest.mark.asyncio
-async def test_run_post_process_marks_phase2b_in_notes(db):
-    """post-process stub 必須在 notes 寫明 Phase 2-B 標記，避免 admin 誤以為已生效。"""
-    from production.tasks import _run_post_process_async
-
-    image, job = await _seed_image_and_job(db)
-    # 模擬 service.post_process 已把參數寫入 job 並 status=processing
-    job.status = JobStatusEnum.processing
-    await db.commit()
-
-    await _run_post_process_async(str(job.id), {"operation": "merge_color"})
-
-    refreshed = (await db.execute(
-        select(ProductionJob).where(ProductionJob.id == job.id)
-    )).scalar_one()
-    await db.refresh(refreshed)
-
-    assert refreshed.status == JobStatusEnum.completed
-    assert "Phase 2-B" in (refreshed.notes or "")
-    assert "未變更檔案" in (refreshed.notes or "")
-
-
 # ── _parse_blob_path 純函式 ────────────────────────────────────────────────────
 
 
