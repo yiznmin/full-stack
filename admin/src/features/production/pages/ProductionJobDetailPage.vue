@@ -235,8 +235,21 @@ function fmtDateTime(iso: string | null): string {
           <div
             class="aspect-square rounded-[var(--radius-sm)] border border-line-hairline overflow-hidden bg-paper-canvas flex items-center justify-center"
           >
+            <!-- 處理中：不顯示舊圖（避免誤以為已完成） -->
+            <div
+              v-if="job.status === 'pending' || job.status === 'processing'"
+              class="text-center px-4 text-ink-muted"
+            >
+              <Loader2
+                :size="32"
+                :stroke-width="1.5"
+                class="mx-auto mb-2 animate-spin text-accent"
+              />
+              <p class="text-[12px]">處理中…</p>
+              <p class="text-[11px] mt-0.5 opacity-70">請稍候，新成品產出後自動更新</p>
+            </div>
             <img
-              v-if="job.filled_template_url"
+              v-else-if="job.filled_template_url"
               :src="job.filled_template_url"
               alt="成品示意圖"
               class="w-full h-full object-contain"
@@ -253,7 +266,24 @@ function fmtDateTime(iso: string | null): string {
           <div
             class="aspect-square rounded-[var(--radius-sm)] border border-line-hairline overflow-hidden bg-paper-surface flex items-center justify-center"
           >
-            <Loader2 v-if="svgLoading" :size="24" :stroke-width="1.5" class="animate-spin text-ink-muted" />
+            <!-- 處理中：不顯示舊 SVG -->
+            <div
+              v-if="job.status === 'pending' || job.status === 'processing'"
+              class="text-center px-4 text-ink-muted"
+            >
+              <Loader2
+                :size="32"
+                :stroke-width="1.5"
+                class="mx-auto mb-2 animate-spin text-accent"
+              />
+              <p class="text-[12px]">處理中…</p>
+            </div>
+            <Loader2
+              v-else-if="svgLoading"
+              :size="24"
+              :stroke-width="1.5"
+              class="animate-spin text-ink-muted"
+            />
             <img
               v-else-if="svgUrl && !svgFailed"
               :src="svgUrl"
