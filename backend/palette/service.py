@@ -231,7 +231,12 @@ async def _auto_map(
     for entry in job.palette_json:
         template_id = entry["template_id"]
         rgb = entry["rgb"]
-        alg_rgb = [rgb["r"], rgb["g"], rgb["b"]]
+        # palette_json.rgb 為 list[int] 三元組 [r, g, b]（schema.md 規範）
+        # 兼容極舊資料格式 {"r":..., "g":..., "b":...}（早期版本，正常情況不會出現）
+        if isinstance(rgb, dict):
+            alg_rgb = [int(rgb["r"]), int(rgb["g"]), int(rgb["b"])]
+        else:
+            alg_rgb = [int(c) for c in rgb]
 
         best = min(
             candidates,
