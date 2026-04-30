@@ -326,10 +326,37 @@ function submitBatch() {
   emit('confirmBatch', [...queue.value])
 }
 
+/** 反推 polygon 的原始 template_id：
+ *  pbn_gen 的 polygon fill 是 25%-mixed 顯示色（display = orig*0.25 + 255*0.75）；
+ *  逆運算 orig = (display - 191.25) / 0.25 ≈ 4*display - 765，再 clamp 到 0~255。
+ *  與 palette 各 RGB 比距離找最接近的 template_id。
+ */
+function originalTemplateId(polygonId: string): number | null {
+  const fill = polygonFills.value.get(polygonId)
+  if (!fill) return null
+  const m = fill.match(/^#([0-9a-f]{6})$/i)
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  const dr = (n >> 16) & 0xff
+  const dg = (n >> 8) & 0xff
+  const db = n & 0xff
+  const r = Math.max(0, Math.min(255, Math.round(dr * 4 - 765)))
+  const g = Math.max(0, Math.min(255, Math.round(dg * 4 - 765)))
+  const b = Math.max(0, Math.min(255, Math.round(db * 4 - 765)))
+  let best: { id: number; dist: number } | null = null
+  for (const c of props.palette) {
+    const [pr, pg, pb] = c.rgb
+    const dist = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+    if (!best || dist < best.dist) best = { id: c.template_id, dist: dist }
+  }
+  return best?.id ?? null
+}
+
 /** 佇列 chip 顯示資訊：被改色那格 + 原色 + 目標色 + 操作類型文字。 */
 function opDisplay(op: BatchOperation): {
   changedPolygon: string
   fromFill: string
+  fromTemplateId: number | null
   toFill: string
   toLabel: string
   kind: string
@@ -339,6 +366,7 @@ function opDisplay(op: BatchOperation): {
     return {
       changedPolygon: op.polygon_id,
       fromFill: polygonFills.value.get(op.polygon_id) || '#FFFFFF',
+      fromTemplateId: originalTemplateId(op.polygon_id),
       toFill: c?.hex || '#000000',
       toLabel: `#${op.target_template_id}`,
       kind: '合併',
@@ -348,8 +376,9 @@ function opDisplay(op: BatchOperation): {
   return {
     changedPolygon: op.absorbed_polygon_id,
     fromFill: polygonFills.value.get(op.absorbed_polygon_id) || '#FFFFFF',
+    fromTemplateId: originalTemplateId(op.absorbed_polygon_id),
     toFill: polygonFills.value.get(op.surviving_polygon_id) || '#000000',
-    toLabel: op.surviving_polygon_id,
+    toLabel: `${op.surviving_polygon_id}（#${originalTemplateId(op.surviving_polygon_id) ?? '?'}）`,
     kind: '消邊界',
   }
 }
@@ -503,6 +532,12 @@ function opDisplay(op: BatchOperation): {
                 :style="{ backgroundColor: opDisplay(op).fromFill }"
                 :title="`原色 ${opDisplay(op).fromFill}`"
               />
+              <span
+                v-if="opDisplay(op).fromTemplateId !== null"
+                class="text-ink-muted font-mono shrink-0"
+              >
+                #{{ opDisplay(op).fromTemplateId }}
+              </span>
               <span class="text-ink-muted shrink-0">→</span>
               <span
                 class="inline-block w-5 h-5 rounded border border-line-hairline shrink-0"
