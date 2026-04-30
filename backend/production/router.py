@@ -12,6 +12,7 @@ from product.schemas.response import AvailableJobListResponse
 from production import service
 from production.schemas.request import (
     ApproveRequest,
+    BatchPostProcessRequest,
     CreateImageRequest,
     CreateJobsRequest,
     EliminateBorderRequest,
@@ -150,6 +151,22 @@ async def post_process_merge_color(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.post_process(db, job_id, body.model_dump())
+
+
+@router.post(
+    "/admin/production/jobs/{job_id}/post-process/batch",
+    response_model=JobDetailResponse,
+    status_code=202,
+)
+async def post_process_batch(
+    job_id: UUID,
+    body: BatchPostProcessRequest,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """批次後處理：在同一個 Celery 任務內按順序套用所有 ops，僅一次 SVG 重產 + 上傳。"""
+    ops = [op.model_dump() for op in body.operations]
+    return await service.post_process(db, job_id, {"operations": ops})
 
 
 @router.post(

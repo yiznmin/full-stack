@@ -22,11 +22,13 @@ import JobStatusBadge from '../components/JobStatusBadge.vue'
 import PostProcessDialog from '../components/PostProcessDialog.vue'
 import {
   useApproveJobMutation,
+  useBatchPostProcessMutation,
   useEliminateBorderMutation,
   useJobQuery,
   useMergeColorMutation,
   useUnapproveJobMutation,
 } from '../queries'
+import type { BatchOperation } from '../api'
 import {
   downloadJobPdf,
   getJobSignedUrl,
@@ -44,6 +46,7 @@ const approveMut = useApproveJobMutation(jobId.value)
 const unapproveMut = useUnapproveJobMutation(jobId.value)
 const mergeMut = useMergeColorMutation(jobId.value)
 const eliminateMut = useEliminateBorderMutation(jobId.value)
+const batchMut = useBatchPostProcessMutation(jobId.value)
 
 // Post-process dialog
 type PostProcessType = 'merge_color' | 'eliminate_border'
@@ -55,24 +58,13 @@ function openPostProcess(t: PostProcessType) {
   postProcessOpen.value = true
 }
 
-async function onMerge(payload: { polygon_id: string; target_template_id: number }) {
+async function onBatch(operations: BatchOperation[]) {
   apiError.value = null
   try {
-    await mergeMut.mutateAsync(payload)
+    await batchMut.mutateAsync({ operations })
     postProcessOpen.value = false
   } catch (e) {
-    apiError.value = (e as { message?: string }).message || '合併失敗'
-  }
-}
-async function onEliminate(
-  payload: { absorbed_polygon_id: string; surviving_polygon_id: string },
-) {
-  apiError.value = null
-  try {
-    await eliminateMut.mutateAsync(payload)
-    postProcessOpen.value = false
-  } catch (e) {
-    apiError.value = (e as { message?: string }).message || '消邊界失敗'
+    apiError.value = (e as { message?: string }).message || '批次執行失敗'
   }
 }
 const apiError = ref<string | null>(null)
@@ -379,10 +371,9 @@ function fmtDateTime(iso: string | null): string {
       :type="postProcessType"
       :palette="job.palette_json ?? []"
       :svg-url="svgUrl"
-      :pending="mergeMut.isPending.value || eliminateMut.isPending.value"
+      :pending="batchMut.isPending.value"
       @close="postProcessOpen = false"
-      @confirm-merge="onMerge"
-      @confirm-eliminate="onEliminate"
+      @confirm-batch="onBatch"
     />
   </template>
 </template>

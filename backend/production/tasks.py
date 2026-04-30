@@ -16,7 +16,7 @@ from typing import Any
 
 from core.celery_app import celery_app
 from production.engine import (
-    apply_region_replacement,
+    apply_region_replacements,
     generate_standard,
     get_polygon_rgb,
     resolve_engine_params,
@@ -355,23 +355,21 @@ def _find_rgb_in_palette(palette_json: list, template_id: int) -> tuple[int, int
     return None
 
 
-def _resolve_post_process_op(
+def _resolve_single_op(
     params: dict,
     palette_json: list,
     snapped_rgb_path: str,
     svg_path: str,
 ) -> _PostProcessOp:
-    """從 params 解出區域層級操作；可能需要讀 snapped_rgb + SVG 來找 surviving 格的色。
-
-    A 格子合併：{polygon_id, target_template_id}
-      → polygon_ids=[polygon_id]，tgt_rgb=palette[target_template_id].rgb
-
-    B 消除邊界：{absorbed_polygon_id, surviving_polygon_id}
-      → polygon_ids=[absorbed_polygon_id]，tgt_rgb=該存活格在 snapped_rgb 中的實際 RGB
-        （從 SVG polygon → mask → sample，不從 palette 反查；避免 palette/snapped 不同步）
+    """單一 op：A {polygon_id, target_template_id} 或 B {absorbed_polygon_id, surviving_polygon_id}
+    或 batch op {op: "merge_color"/"eliminate_border", ...}。
     """
-    if "polygon_id" in params and "target_template_id" in params:
-        # A 格子合併
+    op_type = params.get("op")
+
+    # 原 single op 格式（A）或 batch op="merge_color"
+    if op_type == "merge_color" or (
+        op_type is None and "polygon_id" in params and "target_template_id" in params
+    ):
         polygon_id = str(params["polygon_id"])
         target_template_id = int(params["target_template_id"])
         tgt_rgb = _find_rgb_in_palette(palette_json or [], target_template_id)
@@ -381,19 +379,46 @@ def _resolve_post_process_op(
             )
         return _PostProcessOp(polygon_ids=[polygon_id], tgt_rgb=tgt_rgb)
 
-    if "absorbed_polygon_id" in params and "surviving_polygon_id" in params:
-        # B 消除邊界
+    # 原 single op 格式（B）或 batch op="eliminate_border"
+    if op_type == "eliminate_border" or (
+        op_type is None
+        and "absorbed_polygon_id" in params
+        and "surviving_polygon_id" in params
+    ):
         absorbed = str(params["absorbed_polygon_id"])
         surviving = str(params["surviving_polygon_id"])
         if absorbed == surviving:
             raise ValueError("absorbed_polygon_id 與 surviving_polygon_id 不可相同")
-        # 從 surviving 格在 snapped_rgb 上採樣 RGB
         tgt_rgb = get_polygon_rgb(snapped_rgb_path, svg_path, surviving)
         return _PostProcessOp(polygon_ids=[absorbed], tgt_rgb=tgt_rgb)
 
     raise ValueError(
         f"無法判斷後處理操作類型；params keys={sorted(params.keys())}"
     )
+
+
+def _resolve_post_process_op(
+    params: dict,
+    palette_json: list,
+    snapped_rgb_path: str,
+    svg_path: str,
+) -> list[_PostProcessOp]:
+    """解出 op list（可能 1 個或多個）。
+
+    支援兩種輸入：
+    1. **Batch**：{operations: [{op, ...}, {op, ...}, ...]}
+    2. **Single**（向後相容）：{polygon_id, target_template_id} 或
+       {absorbed_polygon_id, surviving_polygon_id}
+    """
+    if isinstance(params.get("operations"), list):
+        if not params["operations"]:
+            raise ValueError("operations 不能為空")
+        return [
+            _resolve_single_op(o, palette_json, snapped_rgb_path, svg_path)
+            for o in params["operations"]
+        ]
+    # 向後相容：單一 op
+    return [_resolve_single_op(params, palette_json, snapped_rgb_path, svg_path)]
 
 
 async def _remap_palette_color_mappings(session, job_id: str, new_palette: list) -> None:
@@ -597,17 +622,19 @@ def _run_post_process_engine_and_upload(
         _download_image_to_path(snapped_rgb_url, snapped_path)
         _download_image_to_path(svg_url, svg_in_path)
 
-        # 2. 解析 op（可能 raise ValueError → 外層轉 status=failed）
-        op = _resolve_post_process_op(params, palette_json, snapped_path, svg_in_path)
+        # 2. 解析 ops（list）— 可能 raise ValueError → 外層轉 status=failed
+        ops = _resolve_post_process_op(params, palette_json, snapped_path, svg_in_path)
 
-        # 3. 跑引擎
+        # 3. 跑引擎（批次 — 多個 ops 一次性套用，只重產一次 SVG/filled）
         out_dir = os.path.join(tmp_dir, "out")
-        engine_result = apply_region_replacement(
+        engine_result = apply_region_replacements(
             snapped_path,
             svg_in_path,
             out_dir,
-            polygon_ids=op.polygon_ids,
-            tgt_rgb=op.tgt_rgb,
+            ops=[
+                {"polygon_ids": op.polygon_ids, "tgt_rgb": op.tgt_rgb}
+                for op in ops
+            ],
             **engine_params,
         )
 

@@ -775,6 +775,81 @@ async def test_eliminate_border_unauthenticated(client: AsyncClient, db):
     assert res.status_code == 401
 
 
+# ── POST /admin/production/jobs/{id}/post-process/batch ───────────────────────
+
+BATCH_URL_SUFFIX = "/post-process/batch"
+BATCH_BODY = {
+    "operations": [
+        {"op": "merge_color", "polygon_id": "r5", "target_template_id": 1},
+        {
+            "op": "eliminate_border",
+            "absorbed_polygon_id": "r3",
+            "surviving_polygon_id": "r2",
+        },
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_batch_post_process_ok(client: AsyncClient, db):
+    job_id = await _create_pending_job(client, db)
+    await _force_complete(db, job_id)
+
+    with patch("production.service.run_post_process_job") as mock_task:
+        mock_task.delay.return_value = None
+        res = await client.post(
+            f"{JOBS_URL}/{job_id}{BATCH_URL_SUFFIX}", json=BATCH_BODY
+        )
+
+    assert res.status_code == 202
+    data = res.json()
+    assert data["status"] == "processing"
+    assert data["approved"] is False
+    # Celery 收到的 params 應為 {operations: [...]} 結構
+    args = mock_task.delay.call_args
+    assert args.args[0] == job_id
+    assert "operations" in args.args[1]
+    assert len(args.args[1]["operations"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_post_process_empty_operations(client: AsyncClient, db):
+    """operations=[] → 422。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    res = await client.post(
+        f"{JOBS_URL}/{uuid.uuid4()}{BATCH_URL_SUFFIX}",
+        json={"operations": []},
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_batch_post_process_pending_job(client: AsyncClient, db):
+    """status=pending → 400。"""
+    job_id = await _create_pending_job(client, db)
+    res = await client.post(
+        f"{JOBS_URL}/{job_id}{BATCH_URL_SUFFIX}", json=BATCH_BODY
+    )
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_batch_post_process_non_admin(client: AsyncClient, db):
+    await _make_customer(client, db)
+    await _login(client, CUSTOMER_USER["email"], CUSTOMER_USER["password"])
+    res = await client.post(
+        f"{JOBS_URL}/{uuid.uuid4()}{BATCH_URL_SUFFIX}", json=BATCH_BODY
+    )
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_batch_post_process_unauthenticated(client: AsyncClient, db):
+    res = await client.post(
+        f"{JOBS_URL}/{uuid.uuid4()}{BATCH_URL_SUFFIX}", json=BATCH_BODY
+    )
+    assert res.status_code == 401
 
 
 # ── GET /admin/production/jobs/{id}/export-pdf ────────────────────────────────

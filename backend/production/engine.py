@@ -189,77 +189,71 @@ def get_polygon_rgb(snapped_rgb_path: str, svg_path: str, polygon_id: str) -> tu
     return (int(pixel[0]), int(pixel[1]), int(pixel[2]))
 
 
-def apply_region_replacement(
+def apply_region_replacements(
     snapped_rgb_path: str,
     svg_path: str,
     output_dir: str,
     *,
-    polygon_ids: list[str],
-    tgt_rgb: tuple[int, int, int],
+    ops: list[dict],
     canvas_w_cm: float,
     canvas_h_cm: float,
     min_brush_diam_cm: float,
     min_ratio_multiplier: float = 1.0,
 ) -> dict[str, Any]:
-    """post-process A/B 共用：把指定 polygon(s) 的像素 replace 成 tgt_rgb，重跑 SVG/filled。
+    """批次區域 replace：按順序套用 ops（每筆 {polygon_ids, tgt_rgb}）→ 一次重跑 SVG/filled。
 
-    區域層級（admin_production.md §1.6）：
-    - A 格子合併：polygon_ids = [被合併的那一格]，tgt_rgb 為目標色
-    - B 消除邊界：polygon_ids = [被吸收的那一格]，tgt_rgb 為存活側顏色
-      （兩格相鄰是前端 UI 約束，後端不需驗證鄰接）
+    每個 op 都用**原始** SVG 的 polygon mask（不會因前面 op 改色而連動），按順序在
+    snapped_rgb buffer 上覆蓋。最後 output_to_svg 會自動依新像素分布重編號並縮減 palette。
 
-    流程：
-    1. 解 SVG 取每個 polygon 的頂點 → cv2.fillPoly 畫 mask → 聯集
-    2. 在 snapped_rgb 上 mask 內像素 replace 成 tgt_rgb
-    3. 重跑 output_to_svg + output_filled_from_template（會自動縮減 palette
-       — 若某 RGB 0 像素，getUniqueColorsMasks 不會回它）
-
-    回傳 {svg_path, filled_path, snapped_rgb_path, palette_data, num_colors_used,
-          image_width, image_height, min_radius_px}
+    ops 例：
+      [
+        {"polygon_ids": ["r5"], "tgt_rgb": (0, 255, 0)},      # A 合併
+        {"polygon_ids": ["r12"], "tgt_rgb": (40, 50, 60)},     # B 消邊界（surviving 取自的 RGB）
+      ]
     """
     import cv2  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
     from pbn_gen import PbnGen  # noqa: PLC0415
 
+    if not ops:
+        raise ValueError("ops 不能為空")
+
     os.makedirs(output_dir, exist_ok=True)
 
-    # 1. 讀 snapped_rgb
+    # 1. 讀 snapped_rgb 為單一 buffer（所有 op 都改它）
     img_bgr = cv2.imdecode(np.fromfile(snapped_rgb_path, dtype=np.uint8), cv2.IMREAD_COLOR)
     if img_bgr is None:
         raise ValueError(f"無法讀取 snapped_rgb：{snapped_rgb_path}")
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     img_h, img_w = img_rgb.shape[:2]
 
-    # 2. 把每個 polygon 解成 mask 後聯集
-    union_mask = np.zeros((img_h, img_w), dtype=bool)
-    for pid in polygon_ids:
-        pts = _extract_polygon_points(svg_path, pid)
-        union_mask = union_mask | _polygon_to_mask(pts, img_w, img_h)
+    # 2. 按順序套用每個 op
+    for idx, op in enumerate(ops):
+        polygon_ids = op["polygon_ids"]
+        tgt_rgb = op["tgt_rgb"]
+        union_mask = np.zeros((img_h, img_w), dtype=bool)
+        for pid in polygon_ids:
+            pts = _extract_polygon_points(svg_path, pid)
+            union_mask = union_mask | _polygon_to_mask(pts, img_w, img_h)
+        if not union_mask.any():
+            raise ValueError(
+                f"op #{idx} polygon mask 為空（polygon_ids={polygon_ids}）"
+            )
+        img_rgb[union_mask] = np.array(tgt_rgb, dtype=np.uint8)
 
-    if not union_mask.any():
-        raise ValueError(
-            f"polygon mask 為空（polygon_ids={polygon_ids}）— SVG 解析可能失敗"
-        )
-
-    # 3. 像素 replace（只動 union_mask 內）
-    tgt_arr = np.array(tgt_rgb, dtype=np.uint8)
-    img_rgb[union_mask] = tgt_arr
-
-    # 4. 構造 PbnGen，餵改完的圖
+    # 3. 構造 PbnGen，餵改完的圖
     img_bgr_modified = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
     pbn = PbnGen(
         img_bgr_modified,
-        num_colors=1,  # placeholder — output_to_svg 從 self.image 推 unique colors
+        num_colors=1,
         pruningThreshold=1e-4,
         fixed_palette=None,
     )
 
-    # 5. 算 min_radius_px（與 generate_standard 一致）
     min_radius_px = (
         _calc_min_radius_px(canvas_w_cm, img_w, min_brush_diam_cm) * min_ratio_multiplier
     )
 
-    # 6. 跑 output_to_svg → 新 SVG（會重編號 template_id 與 polygon_id）
     new_svg_path = os.path.join(output_dir, "template.svg")
     palette_json_path = os.path.join(output_dir, "palette.json")
     palette_raw = pbn.output_to_svg(
@@ -270,16 +264,13 @@ def apply_region_replacement(
         canvas_h_cm=canvas_h_cm,
     )
 
-    # 7. 輸出新 filled
     filled_path = os.path.join(output_dir, "filled_template.png")
     pbn.output_filled_from_template(filled_path)
 
-    # 8. 存新 snapped_rgb（output_to_svg 跑完內部 _smooth_quantized 後產生）
     snapped_out_path = os.path.join(output_dir, "snapped_rgb.png")
     snapped = pbn._snapped_rgb
     cv2.imwrite(snapped_out_path, cv2.cvtColor(snapped, cv2.COLOR_RGB2BGR))
 
-    # 9. 補 hex/pixels/percent
     palette_data = _build_palette_data(palette_raw, snapped, img_w, img_h)
 
     return {
@@ -292,6 +283,29 @@ def apply_region_replacement(
         "image_height": img_h,
         "min_radius_px": round(min_radius_px, 3),
     }
+
+
+def apply_region_replacement(
+    snapped_rgb_path: str,
+    svg_path: str,
+    output_dir: str,
+    *,
+    polygon_ids: list[str],
+    tgt_rgb: tuple[int, int, int],
+    canvas_w_cm: float,
+    canvas_h_cm: float,
+    min_brush_diam_cm: float,
+    min_ratio_multiplier: float = 1.0,
+) -> dict[str, Any]:
+    """單一 op 包裝層；內部走 apply_region_replacements 共用實作。"""
+    return apply_region_replacements(
+        snapped_rgb_path, svg_path, output_dir,
+        ops=[{"polygon_ids": polygon_ids, "tgt_rgb": tgt_rgb}],
+        canvas_w_cm=canvas_w_cm,
+        canvas_h_cm=canvas_h_cm,
+        min_brush_diam_cm=min_brush_diam_cm,
+        min_ratio_multiplier=min_ratio_multiplier,
+    )
 
 
 def _crop_to_canvas_ratio(img_bgr, canvas_w_cm: float, canvas_h_cm: float):
@@ -403,6 +417,7 @@ __all__ = [
     "DETAIL_PRESETS",
     "DIFFICULTY_LEVELS",
     "apply_region_replacement",
+    "apply_region_replacements",
     "generate_standard",
     "get_polygon_rgb",
     "resolve_engine_params",

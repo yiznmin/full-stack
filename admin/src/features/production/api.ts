@@ -237,6 +237,16 @@ export interface EliminateBorderPayload {
   surviving_polygon_id: string
 }
 
+// ── Batch post-process ─────────────────────────────────────────────────
+
+export type BatchOperation =
+  | ({ op: 'merge_color' } & MergeColorPayload)
+  | ({ op: 'eliminate_border' } & EliminateBorderPayload)
+
+export interface BatchPostProcessPayload {
+  operations: BatchOperation[]
+}
+
 export function mergeColor(jobId: string, payload: MergeColorPayload) {
   return request<JobDetail>(`/admin/production/jobs/${jobId}/post-process/merge-color`, {
     method: 'POST',
@@ -246,6 +256,14 @@ export function mergeColor(jobId: string, payload: MergeColorPayload) {
 
 export function eliminateBorder(jobId: string, payload: EliminateBorderPayload) {
   return request<JobDetail>(`/admin/production/jobs/${jobId}/post-process/eliminate-border`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** Batch post-process：一次送出多個動作，後端只跑一次 SVG 重產 + 上傳。 */
+export function batchPostProcess(jobId: string, payload: BatchPostProcessPayload) {
+  return request<JobDetail>(`/admin/production/jobs/${jobId}/post-process/batch`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })

@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -118,6 +118,53 @@ class EliminateBorderRequest(BaseModel):
             raise ValueError(
                 "absorbed_polygon_id 與 surviving_polygon_id 不可相同"
             )
+        return self
+
+
+# ── Batch 後處理 ─────────────────────────────────────────────────────────────
+
+
+class BatchMergeOp(BaseModel):
+    op: Literal["merge_color"]
+    polygon_id: str
+    target_template_id: int
+
+
+class BatchEliminateOp(BaseModel):
+    op: Literal["eliminate_border"]
+    absorbed_polygon_id: str
+    surviving_polygon_id: str
+
+    @model_validator(mode="after")
+    def validate_different(self) -> "BatchEliminateOp":
+        if self.absorbed_polygon_id == self.surviving_polygon_id:
+            raise ValueError(
+                "absorbed_polygon_id 與 surviving_polygon_id 不可相同"
+            )
+        return self
+
+
+_BatchOp = Annotated[
+    BatchMergeOp | BatchEliminateOp,
+    Field(discriminator="op"),
+]
+
+
+class BatchPostProcessRequest(BaseModel):
+    """區域層級批次後處理：admin 在 dialog 內累積多個動作 → 一次送出。
+
+    後端在同一個 Celery 任務內按順序套用所有 ops（同 snapped_rgb 緩衝、所有 mask
+    都用**原始** SVG 的 polygon 範圍），最後**只跑一次** output_to_svg + filled
+    + Firebase 上傳，比 N 個單獨 endpoint 高效 N 倍。
+    """
+    operations: list[_BatchOp]
+
+    @model_validator(mode="after")
+    def validate_size(self) -> "BatchPostProcessRequest":
+        if not self.operations:
+            raise ValueError("operations 不能為空")
+        if len(self.operations) > 50:
+            raise ValueError("一次最多 50 個操作")
         return self
 
 

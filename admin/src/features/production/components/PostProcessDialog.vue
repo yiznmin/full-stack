@@ -4,9 +4,9 @@ import Dialog from '@/shared/ui/Dialog.vue'
 import Button from '@/shared/ui/Button.vue'
 import Label from '@/shared/ui/Label.vue'
 import Select from '@/shared/ui/Select.vue'
-import { Loader2, AlertTriangle, Crosshair } from 'lucide-vue-next'
+import { Loader2, AlertTriangle, Crosshair, Plus, X } from 'lucide-vue-next'
 
-import type { PaletteColor } from '../api'
+import type { BatchOperation, PaletteColor } from '../api'
 
 type OperationType = 'merge_color' | 'eliminate_border'
 
@@ -21,8 +21,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  confirmMerge: [payload: { polygon_id: string; target_template_id: number }]
-  confirmEliminate: [payload: { absorbed_polygon_id: string; surviving_polygon_id: string }]
+  /** 全部 ops 一起送出（batch 端點） */
+  confirmBatch: [payload: BatchOperation[]]
 }>()
 
 // ── 狀態 ────────────────────────────────────────────────────────────────────
@@ -33,6 +33,7 @@ const polygon2 = ref<string>('')  // 第二格（B only）
 const targetTemplateId = ref<string>('')  // 目標色（A only）
 const survivor = ref<'p1' | 'p2' | ''>('')  // B 的存活側選擇
 const errors = ref<Record<string, string>>({})
+const queue = ref<BatchOperation[]>([])  // 累積的批次動作
 
 const svgContainerRef = ref<HTMLDivElement | null>(null)
 const svgLoading = ref(false)
@@ -51,6 +52,7 @@ watch(
       errors.value = {}
       svgError.value = null
       zoom.value = 1
+      queue.value = []
     }
   },
 )
@@ -236,21 +238,48 @@ function _isLightColor(hex: string): boolean {
   return (r * 299 + g * 587 + b * 114) / 1000 > 155
 }
 
-function submit() {
+function addToQueue() {
   if (!validate() || !props.type) return
   if (props.type === 'merge_color') {
-    emit('confirmMerge', {
+    queue.value.push({
+      op: 'merge_color',
       polygon_id: polygon1.value,
       target_template_id: Number(targetTemplateId.value),
     })
   } else if (props.type === 'eliminate_border') {
     const absorbed = survivor.value === 'p1' ? polygon2.value : polygon1.value
     const surviving = survivor.value === 'p1' ? polygon1.value : polygon2.value
-    emit('confirmEliminate', {
+    queue.value.push({
+      op: 'eliminate_border',
       absorbed_polygon_id: absorbed,
       surviving_polygon_id: surviving,
     })
   }
+  // 清空當前選擇，方便下一個動作
+  polygon1.value = ''
+  polygon2.value = ''
+  targetTemplateId.value = ''
+  survivor.value = ''
+  errors.value = {}
+  highlightPolygons([])
+}
+
+function removeFromQueue(idx: number) {
+  queue.value.splice(idx, 1)
+}
+
+function submitBatch() {
+  if (queue.value.length === 0) return
+  emit('confirmBatch', [...queue.value])
+}
+
+/** 給已加入佇列的 op 顯示一行人類可讀描述。 */
+function describeOp(op: BatchOperation): string {
+  if (op.op === 'merge_color') {
+    const c = props.palette.find((p) => p.template_id === op.target_template_id)
+    return `合併 ${op.polygon_id} → #${op.target_template_id} ${c?.hex ?? ''}`
+  }
+  return `消邊界 ${op.absorbed_polygon_id} → ${op.surviving_polygon_id}`
 }
 </script>
 
@@ -370,13 +399,47 @@ function submit() {
         <Select v-model="survivor" :options="survivorOptions" />
         <p v-if="errors.survivor" class="mt-1 text-[12px] text-state-danger">{{ errors.survivor }}</p>
       </div>
+
+      <!-- 加入佇列 -->
+      <div class="flex justify-end">
+        <Button variant="secondary" :disabled="pending" @click="addToQueue">
+          <Plus :size="14" :stroke-width="1.5" />
+          加入佇列
+        </Button>
+      </div>
+
+      <!-- 佇列 -->
+      <div v-if="queue.length > 0" class="border-t border-line-hairline pt-3">
+        <Label>動作佇列（{{ queue.length }} 個）</Label>
+        <ul class="mt-1 space-y-1">
+          <li
+            v-for="(op, idx) in queue"
+            :key="idx"
+            class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-surface-muted text-[12px]"
+          >
+            <span class="font-mono truncate">{{ idx + 1 }}. {{ describeOp(op) }}</span>
+            <button
+              type="button"
+              class="text-ink-muted hover:text-state-danger"
+              :disabled="pending"
+              @click="removeFromQueue(idx)"
+            >
+              <X :size="14" :stroke-width="1.5" />
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <template #footer>
       <Button variant="secondary" :disabled="pending" @click="emit('close')">取消</Button>
-      <Button variant="primary" :disabled="pending" @click="submit">
+      <Button
+        variant="primary"
+        :disabled="pending || queue.length === 0"
+        @click="submitBatch"
+      >
         <Loader2 v-if="pending" :size="14" :stroke-width="1.5" class="animate-spin" />
-        執行
+        全部執行（{{ queue.length }}）
       </Button>
     </template>
   </Dialog>

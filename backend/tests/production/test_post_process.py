@@ -281,12 +281,13 @@ def test_resolve_op_merge_color():
             {"template_id": 1, "rgb": [10, 20, 30]},
             {"template_id": 2, "rgb": [40, 50, 60]},
         ]
-        op = _resolve_post_process_op(
+        ops = _resolve_post_process_op(
             {"polygon_id": "r5", "target_template_id": 2},
             palette, snapped, svg,
         )
-        assert op.polygon_ids == ["r5"]
-        assert op.tgt_rgb == (40, 50, 60)
+        assert len(ops) == 1
+        assert ops[0].polygon_ids == ["r5"]
+        assert ops[0].tgt_rgb == (40, 50, 60)
 
 
 def test_resolve_op_merge_color_unknown_target_template_id():
@@ -314,13 +315,14 @@ def test_resolve_op_eliminate_border():
             ("r2", [(50, 10), (70, 10), (70, 30), (50, 30)]),  # 右半（綠）
         ], 80, 80)
 
-        op = _resolve_post_process_op(
+        ops = _resolve_post_process_op(
             {"absorbed_polygon_id": "r1", "surviving_polygon_id": "r2"},
             [],  # palette 不需要（B 操作從 SVG 採樣）
             snapped, svg,
         )
-        assert op.polygon_ids == ["r1"]
-        assert op.tgt_rgb == (0, 255, 0)  # 右半綠
+        assert len(ops) == 1
+        assert ops[0].polygon_ids == ["r1"]
+        assert ops[0].tgt_rgb == (0, 255, 0)  # 右半綠
 
 
 def test_resolve_op_eliminate_border_same_id_raises():
@@ -332,6 +334,59 @@ def test_resolve_op_eliminate_border_same_id_raises():
         with pytest.raises(ValueError, match="不可相同"):
             _resolve_post_process_op(
                 {"absorbed_polygon_id": "r1", "surviving_polygon_id": "r1"},
+                [], snapped, svg,
+            )
+
+
+def test_resolve_op_batch_mixed():
+    """Batch params {operations: [...]} 解出多個 ops。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        snapped = os.path.join(tmp, "s.png")
+        svg = os.path.join(tmp, "t.svg")
+        _write_two_color_image(snapped, 80, 80)
+        _write_test_svg(svg, [
+            ("r0", [(0, 10), (20, 10), (20, 30), (0, 30)]),
+            ("r1", [(50, 10), (70, 10), (70, 30), (50, 30)]),
+        ], 80, 80)
+        palette = [
+            {"template_id": 1, "rgb": [10, 20, 30]},
+            {"template_id": 2, "rgb": [40, 50, 60]},
+        ]
+        ops = _resolve_post_process_op(
+            {
+                "operations": [
+                    {
+                        "op": "merge_color",
+                        "polygon_id": "r0",
+                        "target_template_id": 2,
+                    },
+                    {
+                        "op": "eliminate_border",
+                        "absorbed_polygon_id": "r0",
+                        "surviving_polygon_id": "r1",
+                    },
+                ],
+            },
+            palette, snapped, svg,
+        )
+        assert len(ops) == 2
+        # op1 merge_color: r0 → palette[2].rgb
+        assert ops[0].polygon_ids == ["r0"]
+        assert ops[0].tgt_rgb == (40, 50, 60)
+        # op2 eliminate_border: r0 → r1 採樣（右半綠）
+        assert ops[1].polygon_ids == ["r0"]
+        assert ops[1].tgt_rgb == (0, 255, 0)
+
+
+def test_resolve_op_batch_empty_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        snapped = os.path.join(tmp, "s.png")
+        svg = os.path.join(tmp, "t.svg")
+        _write_two_color_image(snapped, 80, 80)
+        _write_test_svg(svg, [("r0", [(0, 0), (10, 0), (5, 5)])], 80, 80)
+        with pytest.raises(ValueError, match="operations 不能為空"):
+            _resolve_post_process_op(
+                {"operations": []},
                 [], snapped, svg,
             )
 
@@ -390,14 +445,14 @@ def _patch_post_process_engine(extra_patches: dict | None = None):
 
     # 跳過 download — _download_image_to_path 只是寫檔
     stack.enter_context(patch("production.tasks._download_image_to_path"))
-    # 跳過 op 解析（不用真讀 SVG/snapped）
+    # 跳過 op 解析（不用真讀 SVG/snapped）— 回 list（batch 路徑）
     fake_op = type("Op", (), {"polygon_ids": ["r0"], "tgt_rgb": (0, 255, 0)})()
     stack.enter_context(
-        patch("production.tasks._resolve_post_process_op", return_value=fake_op)
+        patch("production.tasks._resolve_post_process_op", return_value=[fake_op])
     )
-    # 攔引擎本體
+    # 攔引擎本體（batch 版本）
     stack.enter_context(
-        patch("production.tasks.apply_region_replacement", return_value=_FAKE_ENGINE_RESULT)
+        patch("production.tasks.apply_region_replacements", return_value=_FAKE_ENGINE_RESULT)
     )
     if extra_patches:
         for path, kwargs in extra_patches.items():
@@ -520,7 +575,7 @@ async def test_run_post_process_bad_params_marks_failed(db):
              side_effect=ValueError("找不到 polygon r999"),
          ), \
          patch("production.tasks._upload_file") as mock_upload, \
-         patch("production.tasks.apply_region_replacement") as mock_engine:
+         patch("production.tasks.apply_region_replacements") as mock_engine:
         await _run_post_process_async(
             str(job.id),
             {"polygon_id": "r999", "target_template_id": 1},
@@ -543,9 +598,9 @@ async def test_run_post_process_engine_error_marks_failed(db):
 
     fake_op = type("Op", (), {"polygon_ids": ["r0"], "tgt_rgb": (0, 255, 0)})()
     with patch("production.tasks._download_image_to_path"), \
-         patch("production.tasks._resolve_post_process_op", return_value=fake_op), \
+         patch("production.tasks._resolve_post_process_op", return_value=[fake_op]), \
          patch(
-             "production.tasks.apply_region_replacement",
+             "production.tasks.apply_region_replacements",
              side_effect=RuntimeError("engine boom"),
          ), \
          patch("production.tasks._upload_file") as mock_upload, \
@@ -572,9 +627,9 @@ async def test_run_post_process_upload_error_rolls_back(db):
 
     fake_op = type("Op", (), {"polygon_ids": ["r0"], "tgt_rgb": (0, 255, 0)})()
     with patch("production.tasks._download_image_to_path"), \
-         patch("production.tasks._resolve_post_process_op", return_value=fake_op), \
+         patch("production.tasks._resolve_post_process_op", return_value=[fake_op]), \
          patch(
-             "production.tasks.apply_region_replacement",
+             "production.tasks.apply_region_replacements",
              return_value=_FAKE_ENGINE_RESULT,
          ), \
          patch("production.tasks._upload_file") as mock_upload, \
@@ -691,7 +746,7 @@ async def test_run_post_process_no_snapped_or_svg_url(db):
     job.snapped_rgb_url = None
     await db.commit()
 
-    with patch("production.tasks.apply_region_replacement") as mock_engine:
+    with patch("production.tasks.apply_region_replacements") as mock_engine:
         await _run_post_process_async(
             str(job.id),
             {"polygon_id": "r5", "target_template_id": 2},

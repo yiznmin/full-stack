@@ -4,12 +4,14 @@ import { computed, toValue } from 'vue'
 
 import {
   approveJob,
+  batchPostProcess,
   createJobs,
   eliminateBorder,
   getJob,
   listJobs,
   mergeColor,
   unapproveJob,
+  type BatchPostProcessPayload,
   type CreateJobsRequest,
   type EliminateBorderPayload,
   type JobsListParams,
@@ -89,6 +91,14 @@ export function useEliminateBorderMutation(id: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: EliminateBorderPayload) => eliminateBorder(id, payload),
+    onSuccess: () => invalidate(qc, id),
+  })
+}
+
+export function useBatchPostProcessMutation(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: BatchPostProcessPayload) => batchPostProcess(id, payload),
     onSuccess: () => invalidate(qc, id),
   })
 }
