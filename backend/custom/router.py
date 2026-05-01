@@ -255,6 +255,25 @@ async def admin_post_message(
     return await service.admin_post_message(db, request_id, body.message, body.image_url)
 
 
+@router.get(
+    "/admin/custom-requests/{request_id}/preview-watermark",
+    response_model=None,  # binary PNG stream
+    response_class=Response,
+)
+async def admin_get_preview_watermark(
+    request_id: UUID,
+    _=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """送報價前 admin 預覽客戶會看到的浮水印圖。不消耗 view_count。"""
+    png = await service.admin_get_preview_watermark(db, request_id)
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @router.patch(
     "/admin/custom-requests/{request_id}/mark-negotiating",
     response_model=AdminMarkNegotiatingResponse,
