@@ -24,6 +24,9 @@ app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 
+# Liveness probe（只驗 process 存活）— 不查 DB / Redis / Firebase。
+# 刻意不做 readiness 檢查：避免 DB 短暫斷線就觸發 Railway 把 web service 重啟，
+# 反而拉長恢復時間。若 DB 永久壞掉，內部 API 會自然回 500（前端可看到具體錯誤）。
 @app.get("/health")
 async def health():
     return {"status": "ok"}

@@ -1,0 +1,60 @@
+# 專案根 .dockerignore — 控制 Docker build context 大小
+#
+# Dockerfile 路徑：backend/Dockerfile
+# build context：專案根目錄（railway.toml 內 rootDirectory="."）
+# 只 COPY backend/ + paint-by-number/src，但 build context 會打包整個 repo
+# 沒 ignore 會把 admin、DocFinal、paint-by-number/output、.git、models 等都送 daemon
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# 前端（Vercel 部署，不進 backend image）
+admin/
+
+# Docs / 設計文件
+docs/
+DocFinal/
+
+# paint-by-number 重型資產（image 只需要 src/）
+paint-by-number/output/
+paint-by-number/images/
+paint-by-number/images_sam/
+paint-by-number/models/
+paint-by-number/notebooks/
+paint-by-number/.git/
+
+# Backend dev artifacts
+backend/venv/
+backend/.venv/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.mypy_cache/
+backend/.coverage
+backend/htmlcov/
+backend/.env
+backend/.env.local
+backend/.env.production
+backend/service-account.json
+backend/*.pem
+backend/scripts/review_records/
+backend/test.svg
+
+# Python bytecode（覆蓋所有層的 __pycache__，含 paint-by-number/src）
+**/__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

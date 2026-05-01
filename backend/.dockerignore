@@ -1,0 +1,34 @@
+# 排除本地開發產物，避免進 image 拖慢 build
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local env / secrets — 絕不可進 image
+.env
+.env.local
+.env.production
+*.pem
+service-account.json
+
+# Reviewer records (本地)
+scripts/review_records/
