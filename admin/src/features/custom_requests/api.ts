@@ -58,6 +58,7 @@ export interface CustomRequestMessage {
   request_id: string
   sender_type: MessageSender
   message: string
+  image_url: string | null
   created_at: string
 }
 
@@ -113,6 +114,9 @@ export interface CustomRequestDetail {
   quoted_at: string | null
   rejected_at: string | null
   messages: CustomRequestMessage[]
+  /** 客戶 quote viewer 累計查看次數（防止 token 流到競品） */
+  view_count: number
+  last_viewed_at: string | null
 }
 
 export interface PhotoSignedUrlResponse {
@@ -133,6 +137,7 @@ export interface QuoteResponse {
 
 export interface MessagePayload {
   message: string
+  image_url?: string | null
 }
 
 // 加費 / 基礎價格表（admin 端報價試算用）

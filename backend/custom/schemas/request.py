@@ -25,12 +25,15 @@ class CreateCustomRequestRequest(BaseModel):
 
 
 class PostMessageRequest(BaseModel):
-    message: str
+    message: str = ""
+    # 訊息附帶圖片（admin 寄範例參考圖、客戶補充照片）
+    image_url: str | None = None
 
     @model_validator(mode="after")
     def validate_message(self):
-        if not self.message.strip():
-            raise ValueError("訊息不可為空")
+        # message 與 image_url 至少要有一個 — 純圖片訊息允許 message=""
+        if not self.message.strip() and not (self.image_url and self.image_url.strip()):
+            raise ValueError("訊息不可全空（需文字或圖片）")
         return self
 
 

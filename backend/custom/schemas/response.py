@@ -9,6 +9,7 @@ class CustomRequestMessageResponse(BaseModel):
     request_id: UUID
     sender_type: str
     message: str
+    image_url: str | None = None
     created_at: datetime
 
     class Config:
@@ -85,6 +86,9 @@ class AdminCustomRequestDetailResponse(CustomRequestDetailResponse):
     user_name: str
     user_email: str
     admin_notes: str | None
+    # 客戶 quote viewer 訪問追蹤（admin 監看用）
+    view_count: int = 0
+    last_viewed_at: datetime | None = None
 
 
 class CreateCustomRequestResponse(BaseModel):
@@ -100,6 +104,14 @@ class UpdatePhotoResponse(BaseModel):
     updated_at: datetime
 
 
+class QuoteMessageItem(BaseModel):
+    id: UUID
+    sender_type: str  # 'admin' | 'customer'
+    message: str
+    image_url: str | None
+    created_at: datetime
+
+
 class QuoteSummaryResponse(BaseModel):
     custom_request_id: UUID
     spec_summary: dict
@@ -107,6 +119,13 @@ class QuoteSummaryResponse(BaseModel):
     quote_expires_at: datetime
     is_extended: bool
     revision_count: int
+    # 客戶看到的訊息對話（admin/customer 雙向）
+    messages: list[QuoteMessageItem]
+    # 是否有可預覽的 production_job → 客戶 viewer 才顯示預覽圖區塊
+    preview_available: bool
+    # 查看追蹤（防客戶把連結轉給競品看太多次）
+    view_count: int
+    max_views: int
 
 
 class ConfirmQuoteResponse(BaseModel):

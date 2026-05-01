@@ -169,6 +169,14 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  // ── Customer-facing quote viewer — auth required（客戶帳號），不在 AdminLayout
+  // 暫時放在 admin app 內（因為 store/ 還沒建）；未來搬到 store/ 後可移除這條
+  {
+    path: '/customer-quote/:token',
+    name: 'customer-quote-viewer',
+    component: () => import('@/features/customer_quote/pages/CustomerQuoteViewer.vue'),
+    meta: { requiresAuth: true, allowCustomer: true },
+  },
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',

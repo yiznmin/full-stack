@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   ChevronLeft,
   Loader2,
@@ -34,6 +34,7 @@ import {
 } from '../api'
 import { fetchPhotoSignedUrl, useCustomRequestsQuery } from '@/features/custom_requests/queries'
 
+const route = useRoute()
 const router = useRouter()
 
 const createJobsMut = useCreateJobsMutation()
@@ -144,6 +145,18 @@ const selectedCustomRequestId = ref<string | null>(null)
 const selectedCustomRequest = computed(() =>
   customCandidates.value.find((c) => c.id === selectedCustomRequestId.value),
 )
+
+// 從 ?customRequestId=xxx 帶入：客製訂單詳情頁的「前往製作」按鈕跳過來時，
+// 自動切到客製來源並預選對應申請。客戶填的尺寸/難度會顯示在預覽卡片上，
+// admin 可參考後手動設 combo（一張原圖可同時跑多組規格）
+const incomingCustomRequestId = (typeof route.query.customRequestId === 'string')
+  ? route.query.customRequestId
+  : null
+
+if (incomingCustomRequestId) {
+  source.value = 'custom_request'
+  selectedCustomRequestId.value = incomingCustomRequestId
+}
 
 // 選了客製申請就抓 photo signed URL 顯示
 const customPhotoUrl = ref<string | null>(null)

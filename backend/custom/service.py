@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import io
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -36,6 +37,122 @@ from production.models import JobStatusEnum, ProductionJob
 from users.models import ShippingProfile
 
 logger = logging.getLogger(__name__)
+
+
+# ── Quote viewer security ───────────────────────────────────────────────────
+# 客戶看到的預覽圖防護：避免他把 token 連結轉給其他賣家/廠商拿圖去印
+QUOTE_PREVIEW_MAX_WIDTH = 800   # 降解析度，不夠拿去印實品
+QUOTE_VIEW_MAX_COUNT = 10        # 客戶看 quote 頁面的次數上限（10 次必須做決定）
+
+
+def _watermark_text_for(req: CustomRequest, user_email: str) -> str:
+    """產追溯浮水印字串：含品牌 + 客戶 email 縮寫 + 申請 ID 前 8 碼。
+
+    流到競品時可從浮水印反推來源（哪個客戶、哪筆申請）。
+    """
+    # email 縮寫：取 @ 前 4 碼大寫，避免完整 email 外洩
+    local = user_email.split("@", 1)[0]
+    abbrev = local[:4].upper() if local else "????"
+    return f"易木工房 預覽  #{abbrev}-{str(req.id)[:8]}"
+
+
+def render_watermarked_preview(
+    image_bytes: bytes,
+    watermark_text: str,
+    *,
+    max_width: int = QUOTE_PREVIEW_MAX_WIDTH,
+) -> bytes:
+    """把 filled_template PNG 降解析度 + 對角線浮水印 + 中間 banner 浮水印。
+
+    回 PNG bytes，可直接由 endpoint 串流給客戶瀏覽器。
+    """
+    from PIL import Image, ImageDraw, ImageFont  # noqa: PLC0415
+
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+
+    # 1. 降解析度 — 寬度 > max_width 才縮
+    if img.width > max_width:
+        ratio = max_width / img.width
+        new_size = (max_width, int(img.height * ratio))
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # 2. 字型 — 找系統內建中文字（fallback 走 PIL default）
+    try:
+        # Windows / Linux 常見中文字型
+        font_main = ImageFont.truetype("msjh.ttc", size=max(20, img.width // 20))
+        font_diag = ImageFont.truetype("msjh.ttc", size=max(16, img.width // 30))
+    except OSError:
+        font_main = ImageFont.load_default()
+        font_diag = ImageFont.load_default()
+
+    # 3. 中央 banner 浮水印
+    bbox = draw.textbbox((0, 0), watermark_text, font=font_main)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    cx = (img.width - text_w) // 2
+    cy = (img.height - text_h) // 2
+    # 半透明黑色 banner 底
+    pad = 20
+    draw.rectangle(
+        [(cx - pad, cy - pad), (cx + text_w + pad, cy + text_h + pad)],
+        fill=(0, 0, 0, 130),
+    )
+    draw.text((cx, cy), watermark_text, fill=(255, 255, 255, 220), font=font_main)
+
+    # 4. 對角斜紋浮水印（防裁掉中間 banner）
+    diag_text = f"  {watermark_text}  "
+    diag_overlay = Image.new("RGBA", (img.width * 2, img.height * 2), (0, 0, 0, 0))
+    diag_draw = ImageDraw.Draw(diag_overlay)
+    diag_bbox = diag_draw.textbbox((0, 0), diag_text, font=font_diag)
+    diag_w = diag_bbox[2] - diag_bbox[0]
+    diag_h = diag_bbox[3] - diag_bbox[1]
+    step_y = diag_h * 6
+    step_x = diag_w + 60
+    for y in range(-img.height, img.height * 2, step_y):
+        for x in range(-img.width, img.width * 2, step_x):
+            diag_draw.text((x, y), diag_text, fill=(255, 255, 255, 60), font=font_diag)
+    # 旋轉 -30° 後貼回 overlay
+    rotated = diag_overlay.rotate(-30, resample=Image.Resampling.BICUBIC)
+    crop_x = (rotated.width - img.width) // 2
+    crop_y = (rotated.height - img.height) // 2
+    diag_clip = rotated.crop((crop_x, crop_y, crop_x + img.width, crop_y + img.height))
+    overlay = Image.alpha_composite(overlay, diag_clip)
+
+    composed = Image.alpha_composite(img, overlay).convert("RGB")
+    out = io.BytesIO()
+    composed.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+async def fetch_filled_template_bytes(filled_template_url: str | None) -> bytes | None:
+    """抓 production_job.filled_template_url（gs:// 或 https）的原始 bytes。
+
+    回 None 代表抓不到（URL 為 null 或下載失敗）— 上層應走「無預覽」狀態。
+    """
+    if not filled_template_url:
+        return None
+    import httpx  # noqa: PLC0415
+
+    fetch_url = filled_template_url
+    if fetch_url.startswith("gs://"):
+        try:
+            from production.service import _make_signed_url  # noqa: PLC0415
+
+            fetch_url = _make_signed_url(fetch_url)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("filled_template signed URL 失敗 %s: %s", filled_template_url, e)
+            return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(fetch_url)
+            r.raise_for_status()
+            return r.content
+    except Exception as e:  # noqa: BLE001
+        logger.warning("抓 filled_template 失敗 %s: %s", fetch_url, e)
+        return None
 
 
 SHIPPING_FEE_HOME = Decimal("120")
@@ -186,7 +303,11 @@ async def get_customer_request(
 
 
 async def post_customer_message(
-    db: AsyncSession, user_id: UUID, request_id: UUID, message: str
+    db: AsyncSession,
+    user_id: UUID,
+    request_id: UUID,
+    message: str,
+    image_url: str | None = None,
 ) -> CustomRequestMessage:
     req_result = await db.execute(
         select(CustomRequest).where(
@@ -201,6 +322,7 @@ async def post_customer_message(
         request_id=request_id,
         sender_type=MessageSenderTypeEnum.customer,
         message=message,
+        image_url=image_url,
     )
     db.add(msg)
     await db.flush()
@@ -268,6 +390,51 @@ async def get_quote_summary(
         raise GoneError("報價已失效", code="QUOTE_EXPIRED")
     if req.quote_expires_at and req.quote_expires_at < datetime.now(UTC):
         raise GoneError("報價已逾期", code="QUOTE_EXPIRED")
+    if (req.view_count or 0) >= QUOTE_VIEW_MAX_COUNT:
+        raise GoneError(
+            f"報價已超過 {QUOTE_VIEW_MAX_COUNT} 次查看上限",
+            code="QUOTE_VIEW_LIMIT_REACHED",
+        )
+
+    # 客戶看的訊息：admin/customer 雙向訊息都列，依時間排序（admin_notes 仍只 admin 看）
+    msgs_result = await db.execute(
+        select(CustomRequestMessage)
+        .where(CustomRequestMessage.request_id == req.id)
+        .order_by(CustomRequestMessage.created_at.asc())
+    )
+    customer_messages = [
+        {
+            "id": m.id,
+            "sender_type": m.sender_type.value,
+            "message": m.message,
+            "image_url": m.image_url,
+            "created_at": m.created_at,
+        }
+        for m in msgs_result.scalars().all()
+    ]
+
+    # 是否有可預覽的 production_job（最近一筆 approved 的 filled_template_url）
+    job_result = await db.execute(
+        select(ProductionJob).where(
+            ProductionJob.custom_request_id == req.id,
+            ProductionJob.filled_template_url.isnot(None),
+        ).order_by(ProductionJob.created_at.desc())
+    )
+    latest_job = job_result.scalars().first()
+    preview_available = latest_job is not None
+
+    # 原子 UPDATE 累加 view_count（avoid 多 client 同時 GET 漏算）
+    from sqlalchemy import update  # noqa: PLC0415
+    await db.execute(
+        update(CustomRequest)
+        .where(CustomRequest.id == req.id)
+        .values(
+            view_count=CustomRequest.view_count + 1,
+            last_viewed_at=datetime.now(UTC),
+        )
+    )
+    await db.commit()
+    await db.refresh(req)
 
     return {
         "custom_request_id": req.id,
@@ -283,7 +450,55 @@ async def get_quote_summary(
         "quote_expires_at": req.quote_expires_at,
         "is_extended": req.is_extended,
         "revision_count": req.revision_count,
+        "messages": customer_messages,
+        "preview_available": preview_available,
+        "view_count": req.view_count,
+        "max_views": QUOTE_VIEW_MAX_COUNT,
     }
+
+
+async def get_quote_preview_image(
+    db: AsyncSession, user_id: UUID, token: str
+) -> bytes:
+    """客戶看到的浮水印降解析度預覽圖。
+
+    驗 token + owner + 狀態 + expires + view_count，過了拿不到。
+    回 PNG bytes 供 endpoint 直接 stream。
+    """
+    req = await _load_request_by_token(db, token)
+    if req.user_id != user_id:
+        raise NotFoundError("報價連結無效")
+    if req.status != CustomRequestStatusEnum.quote_sent:
+        raise GoneError("報價已失效", code="QUOTE_EXPIRED")
+    if req.quote_expires_at and req.quote_expires_at < datetime.now(UTC):
+        raise GoneError("報價已逾期", code="QUOTE_EXPIRED")
+    # `>= MAX` 與 get_quote_summary 一致：summary 達上限後 preview 也鎖（攻擊者
+    # 即使只打 preview 端點也不能繞過）
+    if (req.view_count or 0) >= QUOTE_VIEW_MAX_COUNT:
+        raise GoneError(
+            f"報價已超過 {QUOTE_VIEW_MAX_COUNT} 次查看上限",
+            code="QUOTE_VIEW_LIMIT_REACHED",
+        )
+
+    job_result = await db.execute(
+        select(ProductionJob).where(
+            ProductionJob.custom_request_id == req.id,
+            ProductionJob.filled_template_url.isnot(None),
+        ).order_by(ProductionJob.created_at.desc())
+    )
+    latest_job = job_result.scalars().first()
+    if latest_job is None:
+        raise NotFoundError("尚無可預覽的製作圖")
+
+    # 拿原圖 bytes → 浮水印處理
+    raw_bytes = await fetch_filled_template_bytes(latest_job.filled_template_url)
+    if raw_bytes is None:
+        raise NotFoundError("預覽圖無法載入")
+
+    user_result = await db.execute(select(User).where(User.id == req.user_id))
+    user = user_result.scalar_one()
+    watermark = _watermark_text_for(req, user.email)
+    return await asyncio.to_thread(render_watermarked_preview, raw_bytes, watermark)
 
 
 async def confirm_quote(
@@ -581,11 +796,16 @@ async def admin_get_request(db: AsyncSession, request_id: UUID) -> dict:
     detail["user_name"] = user.name
     detail["user_email"] = user.email
     detail["admin_notes"] = req.admin_notes
+    detail["view_count"] = req.view_count or 0
+    detail["last_viewed_at"] = req.last_viewed_at
     return detail
 
 
 async def admin_post_message(
-    db: AsyncSession, request_id: UUID, message: str
+    db: AsyncSession,
+    request_id: UUID,
+    message: str,
+    image_url: str | None = None,
 ) -> CustomRequestMessage:
     result = await db.execute(
         select(CustomRequest).where(CustomRequest.id == request_id)
@@ -598,16 +818,19 @@ async def admin_post_message(
         request_id=request_id,
         sender_type=MessageSenderTypeEnum.admin,
         message=message,
+        image_url=image_url,
     )
     db.add(msg)
     await db.flush()
 
     user_result = await db.execute(select(User).where(User.id == req.user_id))
     user = user_result.scalar_one()
+    # email 不附 image（避免直接外流），僅提示客戶上 viewer 頁查看
+    body_text = message or "（圖片訊息）請至客製申請頁查看"
     await _send_email(
         to=user.email,
         subject="【PaintLearn】客製申請有新訊息",
-        html=f"<p>{message}</p>",
+        html=f"<p>{body_text}</p>",
     )
 
     await db.commit()
@@ -679,7 +902,8 @@ async def admin_send_quote(
 
     user_result = await db.execute(select(User).where(User.id == req.user_id))
     user = user_result.scalar_one()
-    quote_link = f"{settings.frontend_url}/custom/quote/{plain_token}"
+    # 客戶 viewer 頁路徑：/customer-quote/{token}（admin app 內 no-AdminLayout 路由）
+    quote_link = f"{settings.frontend_url}/customer-quote/{plain_token}"
     await _send_email(
         to=user.email,
         subject="【PaintLearn】客製報價已送出",
@@ -746,6 +970,7 @@ async def _request_detail(db: AsyncSession, req: CustomRequest) -> dict:
             "request_id": m.request_id,
             "sender_type": _enum_val(m.sender_type),
             "message": m.message,
+            "image_url": m.image_url,
             "created_at": m.created_at,
         }
         for m in msgs_result.scalars().all()

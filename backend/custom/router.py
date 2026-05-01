@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -97,7 +97,7 @@ async def post_message(
     db: AsyncSession = Depends(get_db),
 ):
     msg = await service.post_customer_message(
-        db, current_user.id, request_id, body.message
+        db, current_user.id, request_id, body.message, body.image_url
     )
     return msg
 
@@ -127,6 +127,33 @@ async def get_quote(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.get_quote_summary(db, current_user.id, token)
+
+
+@router.get(
+    "/custom/quote/{token}/preview",
+    response_model=None,  # binary PNG stream — no Pydantic model
+    response_class=Response,
+)
+async def get_quote_preview(
+    token: str,
+    current_user=Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """客戶端浮水印降解析度預覽圖。token + owner + 狀態 + 過期 + 查看次數限制全部驗。
+
+    回 PNG bytes，前端用 <img src="/.../preview"> 直接 inline 顯示。
+    禁 cache（每次請求重算 + 計數）。
+    """
+    png = await service.get_quote_preview_image(db, current_user.id, token)
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            # 客戶端工具想 download 也只拿到浮水印降解析度版
+            "Content-Disposition": 'inline; filename="quote-preview.png"',
+        },
+    )
 
 
 @router.post(
@@ -225,7 +252,7 @@ async def admin_post_message(
     _=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.admin_post_message(db, request_id, body.message)
+    return await service.admin_post_message(db, request_id, body.message, body.image_url)
 
 
 @router.patch(

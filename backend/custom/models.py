@@ -71,6 +71,9 @@ class CustomRequest(Base):
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     quoted_at = Column(TIMESTAMP(timezone=True), nullable=True)
     rejected_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # 客戶 quote viewer 訪問追蹤（防客戶把 token 流到競品/廠商）
+    view_count = Column(Integer, nullable=False, default=0)
+    last_viewed_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
 
 class CustomRequestMessage(Base):
@@ -81,7 +84,10 @@ class CustomRequestMessage(Base):
         UUID(as_uuid=True), ForeignKey("custom_requests.id"), nullable=False
     )
     sender_type = Column(Enum(MessageSenderTypeEnum), nullable=False)
+    # message 與 image_url 至少一個須有（service 層強制）：純圖片訊息 message="" 即可
     message = Column(Text, nullable=False)
+    # 訊息附帶的圖片（admin 上傳範例參考圖、客戶上傳補充照片）— 走 Firebase signed URL
+    image_url = Column(String, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 

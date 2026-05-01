@@ -10,6 +10,8 @@ import {
   ImageOff,
   ExternalLink,
   Link as LinkIcon,
+  Wrench,
+  Paperclip,
 } from 'lucide-vue-next'
 
 import Card from '@/shared/ui/Card.vue'
@@ -56,6 +58,21 @@ const canQuote = computed(
     !!req.value &&
     ['quote_pending', 'negotiating', 'draft_revision'].includes(req.value.status),
 )
+// 「前往製作」：在「未確認報價」前的狀態都可以再跑 production_job 預覽
+const canGoToProduction = computed(
+  () =>
+    !!req.value &&
+    req.value.request_type === 'custom_photo' &&
+    ['quote_pending', 'negotiating', 'draft_revision'].includes(req.value.status),
+)
+
+function goToProduction() {
+  if (!req.value) return
+  router.push({
+    path: '/admin/production/new',
+    query: { customRequestId: req.value.id },
+  })
+}
 
 const quoteOpen = ref(false)
 
@@ -81,18 +98,53 @@ async function doQuote(payload: QuotePayload) {
 
 // ── Messages ──────────────────────────────────────────────────────────
 const messageInput = ref('')
+const messageImageUrl = ref<string | null>(null)
+const messageImageUploading = ref(false)
 const messageError = ref<string | null>(null)
+const messageFileInput = ref<HTMLInputElement | null>(null)
+
+async function onPickMessageImage(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  if (file.size > 10 * 1024 * 1024) {
+    messageError.value = '圖片超過 10MB'
+    return
+  }
+  if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+    messageError.value = '只接受 JPEG / PNG'
+    return
+  }
+  messageError.value = null
+  messageImageUploading.value = true
+  try {
+    // 沿用 product features 的通用上傳（走 Firebase signed URL）
+    const { uploadFile } = await import('@/features/products/api')
+    const url = await uploadFile(file)
+    messageImageUrl.value = url
+  } catch (err) {
+    messageError.value = (err as { message?: string }).message || '圖片上傳失敗'
+  } finally {
+    messageImageUploading.value = false
+    if (messageFileInput.value) messageFileInput.value.value = ''
+  }
+}
+
+function clearMessageImage() {
+  messageImageUrl.value = null
+}
 
 async function sendMessage() {
   const m = messageInput.value.trim()
-  if (!m) {
-    messageError.value = '訊息不可為空'
+  // 純文字 OR 純圖片 OR 兩者都有 都允許；兩者皆空才拒絕
+  if (!m && !messageImageUrl.value) {
+    messageError.value = '請輸入文字或附上圖片'
     return
   }
   messageError.value = null
   try {
-    await postMsg.mutateAsync({ message: m })
+    await postMsg.mutateAsync({ message: m, image_url: messageImageUrl.value })
     messageInput.value = ''
+    messageImageUrl.value = null
   } catch (e) {
     handleApiError(e, '訊息傳送失敗')
   }
@@ -201,6 +253,10 @@ const requestTypeLabel = computed(() => {
         <Button v-if="canMarkNegotiating" variant="secondary" :disabled="markNeg.isPending.value" @click="doMarkNegotiating">
           <Loader2 v-if="markNeg.isPending.value" :size="14" :stroke-width="1.5" class="animate-spin" />
           標記洽談中
+        </Button>
+        <Button v-if="canGoToProduction" variant="secondary" @click="goToProduction">
+          <Wrench :size="14" :stroke-width="1.5" />
+          前往製作
         </Button>
         <Button v-if="canQuote" variant="primary" @click="quoteOpen = true">
           <Quote :size="14" :stroke-width="1.5" />
@@ -343,7 +399,20 @@ const requestTypeLabel = computed(() => {
                     : 'bg-paper-subtle text-ink-default border border-line-hairline'
                 "
               >
-                <p class="whitespace-pre-line">{{ m.message }}</p>
+                <a
+                  v-if="m.image_url"
+                  :href="m.image_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="block mb-1.5"
+                >
+                  <img
+                    :src="m.image_url"
+                    alt="附件圖片"
+                    class="max-w-[260px] max-h-[200px] rounded-[var(--radius-xs)] object-contain bg-paper-surface"
+                  />
+                </a>
+                <p v-if="m.message" class="whitespace-pre-line">{{ m.message }}</p>
                 <p
                   class="mt-1 text-[10px] tracking-[0.04em]"
                   :class="m.sender_type === 'admin' ? 'text-paper-surface/70' : 'text-ink-muted'"
@@ -355,6 +424,26 @@ const requestTypeLabel = computed(() => {
           </ul>
 
           <div class="space-y-2">
+            <input
+              ref="messageFileInput"
+              type="file"
+              accept="image/jpeg,image/png"
+              class="hidden"
+              @change="onPickMessageImage"
+            />
+            <!-- 已選圖片預覽 -->
+            <div
+              v-if="messageImageUrl"
+              class="inline-flex items-center gap-2 px-2 py-1.5 border border-line-hairline rounded-[var(--radius-xs)] bg-paper-subtle"
+            >
+              <img :src="messageImageUrl" alt="附件" class="w-12 h-12 object-cover rounded" />
+              <span class="text-[11px] text-ink-muted">已附圖片</span>
+              <button
+                type="button"
+                class="text-[11px] text-state-danger hover:underline"
+                @click="clearMessageImage"
+              >移除</button>
+            </div>
             <Textarea
               v-model="messageInput"
               :rows="3"
@@ -362,10 +451,20 @@ const requestTypeLabel = computed(() => {
               placeholder="輸入訊息給客戶...（Shift+Enter 換行，Enter 送出）"
               @keydown.enter.exact.prevent="sendMessage"
             />
-            <div class="flex items-center justify-between">
-              <p v-if="messageError" class="text-[12px] text-state-danger">{{ messageError }}</p>
-              <p v-else class="text-[11px] text-ink-muted">{{ messageInput.length }} / 2000</p>
-              <Button variant="primary" :disabled="postMsg.isPending.value || !messageInput.trim()" @click="sendMessage">
+            <div class="flex items-center justify-between gap-2">
+              <p v-if="messageError" class="text-[12px] text-state-danger flex-1">{{ messageError }}</p>
+              <p v-else class="text-[11px] text-ink-muted flex-1">{{ messageInput.length }} / 2000</p>
+              <button
+                type="button"
+                class="h-9 px-3 inline-flex items-center gap-1.5 rounded-[var(--radius-xs)] border border-line-strong text-[13px] text-ink-default hover:bg-paper-subtle disabled:opacity-50"
+                :disabled="messageImageUploading"
+                @click="messageFileInput?.click()"
+              >
+                <Loader2 v-if="messageImageUploading" :size="14" :stroke-width="1.5" class="animate-spin" />
+                <Paperclip v-else :size="14" :stroke-width="1.5" />
+                附圖
+              </button>
+              <Button variant="primary" :disabled="postMsg.isPending.value || (!messageInput.trim() && !messageImageUrl)" @click="sendMessage">
                 <Loader2 v-if="postMsg.isPending.value" :size="14" :stroke-width="1.5" class="animate-spin" />
                 <Send v-else :size="14" :stroke-width="1.5" />
                 送出
@@ -381,6 +480,29 @@ const requestTypeLabel = computed(() => {
           <h2 class="font-display text-ink-strong text-[16px] leading-[24px] mb-3">客戶</h2>
           <p class="text-[13px] text-ink-strong">{{ req.user_name }}</p>
           <p class="text-[12px] text-ink-muted">{{ req.user_email }}</p>
+        </Card>
+
+        <Card v-if="req.status === 'quote_sent'">
+          <h2 class="font-display text-ink-strong text-[16px] leading-[24px] mb-3">客戶查看追蹤</h2>
+          <dl class="text-[13px] space-y-1.5">
+            <div class="flex justify-between">
+              <dt class="text-ink-muted">已查看</dt>
+              <dd class="font-mono">
+                <span :class="req.view_count >= 8 ? 'text-state-warning' : 'text-ink-strong'">
+                  {{ req.view_count }}
+                </span>
+                / 10 次
+              </dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-ink-muted">最後查看</dt>
+              <dd class="font-mono text-[12px]">{{ fmtDateTime(req.last_viewed_at) }}</dd>
+            </div>
+          </dl>
+          <p class="mt-3 pt-3 border-t border-line-hairline text-[11px] text-ink-muted leading-relaxed">
+            客戶看到的是浮水印降解析度版（800px）+ 客戶 email 縮寫追溯標記，
+            連結附帶 token；過期、超過 10 次查看後自動失效。
+          </p>
         </Card>
 
         <Card v-if="req.quoted_price">

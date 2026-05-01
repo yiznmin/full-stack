@@ -32,8 +32,11 @@ export function registerAuthGuards(router: Router) {
       }
     }
 
-    // 已登入但角色錯誤（不是 admin）→ 強制登出 + flash
-    if (auth.isAuthenticated && !auth.isAdmin && to.meta.requiresAuth) {
+    // 已登入但角色錯誤 — 預設管理員 only；route meta 可標 allowCustomer 放寬
+    if (
+      auth.isAuthenticated && !auth.isAdmin
+      && to.meta.requiresAuth && !to.meta.allowCustomer
+    ) {
       auth.clear()
       sessionStorage.setItem('auth_flash', '此帳號非管理員')
       return { path: '/admin/login' }

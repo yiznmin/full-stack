@@ -482,6 +482,53 @@ async def test_get_expired_quote(client, db):
 
 
 @pytest.mark.asyncio
+async def test_quote_view_count_increments_and_caps(client, db):
+    """每次 GET quote summary view_count +1；達 10 次再呼叫 → 410 QUOTE_VIEW_LIMIT_REACHED。"""
+    rid, token = await _setup_quote_sent_state(client, db)
+    # 先打 10 次都應該成功，view_count 從 0 累加到 10
+    for i in range(10):
+        res = await client.get(f"{QUOTE_URL}/{token}")
+        assert res.status_code == 200, f"call {i+1}"
+        assert res.json()["view_count"] == i + 1
+        assert res.json()["max_views"] == 10
+    # 第 11 次達上限 → 410
+    res = await client.get(f"{QUOTE_URL}/{token}")
+    assert res.status_code == 410
+    assert res.json().get("code") == "QUOTE_VIEW_LIMIT_REACHED"
+
+
+@pytest.mark.asyncio
+async def test_quote_summary_returns_messages_with_image_url(client, db):
+    """quote summary 帶 messages 列表，含 admin 寄的 image_url 附圖。"""
+    rid, token = await _setup_quote_sent_state(client, db)
+    # 切到 admin 寄一則含圖訊息
+    await _make_admin(db)
+    await _login_admin(client)
+    res = await client.post(
+        f"/api/v1/admin/custom-requests/{rid}/messages",
+        json={"message": "這是參考圖", "image_url": "https://example.com/sample.png"},
+    )
+    assert res.status_code == 201, res.text
+    # 切回 customer 拿 quote → messages 中應含這則
+    await _login_customer(client)
+    res = await client.get(f"{QUOTE_URL}/{token}")
+    assert res.status_code == 200
+    msgs = res.json()["messages"]
+    msg_with_img = next((m for m in msgs if m.get("image_url")), None)
+    assert msg_with_img is not None, f"沒找到帶 image_url 的訊息: {msgs}"
+    assert msg_with_img["image_url"] == "https://example.com/sample.png"
+    assert msg_with_img["sender_type"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_quote_preview_returns_404_when_no_filled_template(client, db):
+    """無 production_job 對應時 GET /preview → 404。"""
+    rid, token = await _setup_quote_sent_state(client, db)
+    res = await client.get(f"{QUOTE_URL}/{token}/preview")
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_get_invalid_quote(client, db):
     await _seed_system_settings(db)
     await _make_customer(client, db)
