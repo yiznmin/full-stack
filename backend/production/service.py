@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from celery import chain
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import BadRequestError, NotFoundError
@@ -136,7 +136,14 @@ async def create_jobs(
         if not exists:
             raise NotFoundError("圖片不存在")
 
-    batch_id = uuid.uuid4() if len(jobs_params) > 1 else None
+    # batch_id 分配規則（Phase A 行為擴張）：
+    # - N > 1：照舊
+    # - N == 1 但 mode != standard：也分配 batch_id（讓 batch start endpoint 能找到）
+    # - N == 1 且 standard：null（與既有行為一致）
+    has_sam = any(
+        str(p.get("mode", "standard")) != "standard" for p in jobs_params
+    )
+    batch_id = uuid.uuid4() if (len(jobs_params) > 1 or has_sam) else None
 
     created_jobs: list[ProductionJob] = []
     for params in jobs_params:
@@ -158,7 +165,11 @@ async def create_jobs(
     for job in created_jobs:
         await db.refresh(job)
 
-    _dispatch_tasks(created_jobs, batch_id)
+    # sam_* 模式不在建立時 enqueue；等 admin 透過 sam-mask endpoint 編完遮罩後，
+    # 由 POST /admin/production/batches/{batch_id}/start 觸發。
+    standard_jobs = [j for j in created_jobs if str(j.mode) == "standard"]
+    if standard_jobs:
+        _dispatch_tasks(standard_jobs, batch_id)
 
     return {
         "batch_id": batch_id,
@@ -182,6 +193,60 @@ def _dispatch_tasks(jobs: list[ProductionJob], batch_id: uuid.UUID | None) -> No
             "Celery dispatch failed (broker offline?): %s — jobs created in DB but not queued",
             e,
         )
+
+
+async def start_batch(db: AsyncSession, batch_id: UUID) -> dict:
+    """admin 編完 mask 後觸發整批 sam_* job 進 Celery（Phase A.4）。
+
+    api.md 規範：
+      - 只 enqueue mode != standard 且 status = pending 且 mask_url != null 的 job
+      - 缺 mask_url → skipped 列「missing mask_url」，不整批拒絕
+      - 已 processing/completed/failed → skipped，避免重複觸發
+      - mode=standard 已在建立時 enqueue → skipped
+      - batch_id 不存在 → 404
+
+    並發保護：用 PostgreSQL advisory_xact_lock 序列化同 batch_id 的 concurrent
+    start_batch 呼叫。第一個取到 lock 的 dispatch 完整批；第二個等到第一個 commit
+    後才繼續，看到 worker 已撈起的 job status=processing 會 skip。
+    註：lock 釋放至 worker pick up 之間仍有極小 race window；admin 連點按鈕的
+    現實視窗內 worst case 是重複 dispatch（worker 浪費資源跑兩次），非資料 corruption。
+
+    回傳 {enqueued: int, skipped: [{job_id, reason}]}.
+    """
+    # advisory_xact_lock 用 batch_id hash 為 key（int8）；transaction 結束自動釋放
+    lock_key = int.from_bytes(batch_id.bytes[:8], "big", signed=True)
+    await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": lock_key})
+
+    rows = (await db.execute(
+        select(ProductionJob).where(ProductionJob.batch_id == batch_id)
+    )).scalars().all()
+    if not rows:
+        raise NotFoundError(f"批次不存在：{batch_id}")
+
+    enqueueable: list[ProductionJob] = []
+    skipped: list[dict] = []
+
+    for job in rows:
+        mode = str(job.mode)
+        status = str(job.status)
+        if mode == "standard":
+            skipped.append({"job_id": job.id, "reason": "standard already enqueued at creation"})
+            continue
+        if status != "pending":
+            skipped.append({"job_id": job.id, "reason": f"already {status}"})
+            continue
+        if not job.mask_url:
+            skipped.append({"job_id": job.id, "reason": "missing mask_url"})
+            continue
+        enqueueable.append(job)
+
+    if enqueueable:
+        _dispatch_tasks(enqueueable, batch_id)
+
+    return {
+        "enqueued": len(enqueueable),
+        "skipped": skipped,
+    }
 
 
 async def list_jobs(

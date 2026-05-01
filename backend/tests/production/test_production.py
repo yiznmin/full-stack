@@ -422,6 +422,8 @@ async def test_get_job_unauthenticated(client: AsyncClient, db):
 
 @pytest.mark.asyncio
 async def test_batch_dispatch_attaches_error_callback(client: AsyncClient, db):
+    """純 standard 多筆批次：error callback 仍 attach（Phase A：sam_* 不在建立時 dispatch，
+    改用兩筆 standard 驗證 chain + cancel_batch_remaining 機制）。"""
     image = await _create_image(client, db)
 
     with patch("production.service.run_production_job") as mock_run, \
@@ -431,7 +433,7 @@ async def test_batch_dispatch_attaches_error_callback(client: AsyncClient, db):
 
         res = await client.post(JOBS_URL, json={
             "image_id": image["id"],
-            "jobs": [STANDARD_JOB, SAM_REFINE_JOB],
+            "jobs": [STANDARD_JOB, STANDARD_JOB],
         })
 
     assert res.status_code == 201
@@ -1416,3 +1418,204 @@ async def test_sam_mask_switch_to_sam_weighted_with_invalid_weight_ratio(
     )
     assert res.status_code == 400
     assert "weight_ratio" in res.json().get("detail", "")
+
+
+# ── POST /admin/production/batches/{batch_id}/start（Phase A.4）──────────────
+
+
+async def _seed_batch_jobs(db, image_id, *, modes_with_mask: list[tuple[str, bool]]):
+    """建立指定 mode 與 mask_url 狀態的 job 列表（共用同一 batch_id）。"""
+    from production.models import (
+        DetailEnum,
+        DifficultyEnum,
+        JobStatusEnum,
+        ModeEnum,
+        ProductionJob,
+    )
+
+    batch_id = uuid.uuid4()
+    jobs = []
+    mode_map = {
+        "standard": ModeEnum.standard,
+        "sam_refine": ModeEnum.sam_refine,
+        "sam_weighted": ModeEnum.sam_weighted,
+    }
+    for idx, (mode_str, has_mask) in enumerate(modes_with_mask):
+        job = ProductionJob(
+            image_id=image_id,
+            batch_id=batch_id,
+            status=JobStatusEnum.pending,
+            approved=False,
+            detail=DetailEnum.standard,
+            difficulty=DifficultyEnum.beginner,
+            mode=mode_map[mode_str],
+            canvas_w_cm=30,
+            canvas_h_cm=40,
+            min_brush_diam_cm=1.0,
+            mask_url=f"gs://x/mask{idx}.png" if has_mask else None,
+            extra_colors=5 if mode_str == "sam_refine" else None,
+            weight_ratio=0.65 if mode_str == "sam_weighted" else None,
+        )
+        db.add(job)
+        jobs.append(job)
+    await db.commit()
+    for j in jobs:
+        await db.refresh(j)
+    return batch_id, jobs
+
+
+@pytest.mark.asyncio
+async def test_batch_start_all_ready(client: AsyncClient, db):
+    """整批 sam_* + 都有 mask_url → 全部 enqueue。"""
+    image_data = await _create_image(client, db)
+    batch_id, jobs = await _seed_batch_jobs(
+        db, image_data["id"],
+        modes_with_mask=[("sam_refine", True), ("sam_weighted", True)],
+    )
+
+    with patch("production.service._dispatch_tasks") as mock_dispatch:
+        res = await client.post(f"/api/v1/admin/production/batches/{batch_id}/start")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["enqueued"] == 2
+    assert body["skipped"] == []
+    assert mock_dispatch.call_count == 1
+    # 兩個 job 都被傳給 _dispatch_tasks
+    dispatched_jobs = mock_dispatch.call_args.args[0]
+    assert len(dispatched_jobs) == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_start_partial_missing_mask(client: AsyncClient, db):
+    """部分 sam_* 缺 mask_url → 200 部分成功，缺的列在 skipped。"""
+    image_data = await _create_image(client, db)
+    batch_id, jobs = await _seed_batch_jobs(
+        db, image_data["id"],
+        modes_with_mask=[("sam_refine", True), ("sam_refine", False)],
+    )
+
+    with patch("production.service._dispatch_tasks") as mock_dispatch:
+        res = await client.post(f"/api/v1/admin/production/batches/{batch_id}/start")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["enqueued"] == 1
+    assert len(body["skipped"]) == 1
+    assert body["skipped"][0]["reason"] == "missing mask_url"
+    assert body["skipped"][0]["job_id"] == str(jobs[1].id)
+    # 只 dispatch 一個（有 mask 的那個）
+    assert mock_dispatch.call_count == 1
+    dispatched_jobs = mock_dispatch.call_args.args[0]
+    assert len(dispatched_jobs) == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_start_skips_standard(client: AsyncClient, db):
+    """batch 內含 standard（防禦：前端應已擋掉混批）→ standard 跳過、sam_* enqueue。"""
+    image_data = await _create_image(client, db)
+    batch_id, jobs = await _seed_batch_jobs(
+        db, image_data["id"],
+        modes_with_mask=[("standard", False), ("sam_refine", True)],
+    )
+
+    with patch("production.service._dispatch_tasks") as mock_dispatch:
+        res = await client.post(f"/api/v1/admin/production/batches/{batch_id}/start")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["enqueued"] == 1
+    assert len(body["skipped"]) == 1
+    assert "standard" in body["skipped"][0]["reason"]
+    assert body["skipped"][0]["job_id"] == str(jobs[0].id)
+    assert mock_dispatch.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_start_uses_advisory_lock_for_serialization(
+    client: AsyncClient, db, monkeypatch,
+):
+    """start_batch 用 PostgreSQL advisory_xact_lock 序列化同 batch 的 concurrent 觸發。
+
+    本測試驗證：start_batch 內部呼叫 pg_advisory_xact_lock。徹底並發 race 測試需要
+    兩個 worker process 跑（pytest 單 process 環境難測），此處只驗 SQL 有發出。
+
+    註：admin 連點按鈕的 race 視窗極小；advisory lock 序列化已能讓重複 dispatch
+    機率降到極低（要兩個 admin 在毫秒內同時點擊）。徹底防重複需新增 dispatched_at
+    欄位（schema 變更，非 Phase A 範圍），列為 known limitation。
+    """
+    image_data = await _create_image(client, db)
+    batch_id, jobs = await _seed_batch_jobs(
+        db, image_data["id"],
+        modes_with_mask=[("sam_refine", True)],
+    )
+
+    captured_sql: list[str] = []
+    from sqlalchemy.ext.asyncio import AsyncSession
+    original_execute = AsyncSession.execute
+
+    async def _spy_execute(self, statement, *args, **kwargs):
+        captured_sql.append(str(statement))
+        return await original_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "execute", _spy_execute)
+
+    with patch("production.service._dispatch_tasks"):
+        res = await client.post(f"/api/v1/admin/production/batches/{batch_id}/start")
+    assert res.status_code == 200
+
+    advisory_calls = [s for s in captured_sql if "pg_advisory_xact_lock" in s]
+    assert len(advisory_calls) >= 1, "start_batch 必須呼叫 pg_advisory_xact_lock 序列化"
+
+
+@pytest.mark.asyncio
+async def test_batch_start_idempotent_when_already_processing(client: AsyncClient, db):
+    """status 已不是 pending（如 processing）→ skipped，不重複觸發。"""
+    from production.models import JobStatusEnum
+
+    image_data = await _create_image(client, db)
+    batch_id, jobs = await _seed_batch_jobs(
+        db, image_data["id"],
+        modes_with_mask=[("sam_refine", True)],
+    )
+    # 把唯一的 job 設成 processing（模擬已開始跑）
+    jobs[0].status = JobStatusEnum.processing
+    await db.commit()
+
+    with patch("production.service._dispatch_tasks") as mock_dispatch:
+        res = await client.post(f"/api/v1/admin/production/batches/{batch_id}/start")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["enqueued"] == 0
+    assert len(body["skipped"]) == 1
+    assert "processing" in body["skipped"][0]["reason"]
+    assert mock_dispatch.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_start_not_found(client: AsyncClient, db):
+    """batch_id 不存在 → 404。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    fake_id = uuid.uuid4()
+    res = await client.post(f"/api/v1/admin/production/batches/{fake_id}/start")
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_batch_start_non_admin(client: AsyncClient, db):
+    """非 admin → 403。"""
+    await _make_customer(client, db)
+    await _login(client, CUSTOMER_USER["email"], CUSTOMER_USER["password"])
+    fake_id = uuid.uuid4()
+    res = await client.post(f"/api/v1/admin/production/batches/{fake_id}/start")
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_batch_start_unauthenticated(client: AsyncClient, db):
+    """未認證 → 401。"""
+    fake_id = uuid.uuid4()
+    res = await client.post(f"/api/v1/admin/production/batches/{fake_id}/start")
+    assert res.status_code == 401

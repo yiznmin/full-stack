@@ -17,6 +17,8 @@ from typing import Any
 from core.celery_app import celery_app
 from production.engine import (
     apply_region_replacements,
+    generate_sam_refine,
+    generate_sam_weighted,
     generate_standard,
     get_polygon_rgb,
     resolve_engine_params,
@@ -135,7 +137,8 @@ def _delete_blob_by_url(url: str | None) -> None:
 def run_production_job(self, job_id: str) -> None:
     """跑單筆 production_job：引擎產出 → Firebase 上傳 → DB 回寫。
 
-    僅支援 mode=standard。sam_refine / sam_weighted 留 Phase 2-B。
+    支援三種 mode：standard / sam_refine / sam_weighted。
+    sam_* 路徑要求 mask_url 已存在（admin 透過 sam-mask endpoint 編輯後寫入）。
     """
     _run_async(_run_production_job_async(job_id))
 
@@ -193,16 +196,18 @@ async def _run_production_job_async(job_id: str) -> None:
                 logger.warning("run_production_job: job %s not found", job_id)
                 return
 
-            if job.mode != "standard":
-                # sam_refine / sam_weighted 留 Phase 2-B
-                job.status = JobStatusEnum.failed
-                job.notes = f"目前僅支援 standard 模式，收到 mode={job.mode}（Phase 2-B 將補上）"
-                await session.commit()
-                return
-
             if job.image_id is None:
                 job.status = JobStatusEnum.failed
                 job.notes = "缺少 image_id（custom_request 路徑請先指派 image）"
+                await session.commit()
+                return
+
+            # sam_* 模式必須先有 mask_url（admin 透過 sam-mask endpoint 編輯後才會有）
+            if job.mode != "standard" and not job.mask_url:
+                job.status = JobStatusEnum.failed
+                job.notes = (
+                    f"mode={job.mode} 但缺 mask_url（請先在製作系統編輯遮罩再送出）"
+                )
                 await session.commit()
                 return
 
@@ -218,10 +223,17 @@ async def _run_production_job_async(job_id: str) -> None:
             await session.commit()
 
             # 跑引擎（在 temp dir 內）+ 上傳
+            sam_kwargs = _resolve_sam_kwargs(job)
             try:
                 result = await asyncio.to_thread(
-                    _run_engine_and_upload, str(job.id), image.original_url, _resolve_params(job),
+                    _run_engine_and_upload,
+                    str(job.id),
+                    image.original_url,
+                    _resolve_params(job),
                     uploaded_blob_paths,
+                    str(job.mode),
+                    job.mask_url,
+                    sam_kwargs,
                 )
             except Exception as e:  # noqa: BLE001
                 logger.exception("run_production_job: engine/upload failed for %s", job_id)
@@ -273,17 +285,48 @@ def _resolve_params(job) -> dict[str, Any]:
     return resolve_engine_params(job)
 
 
+def _resolve_sam_kwargs(job) -> dict[str, Any]:
+    """解 sam_refine / sam_weighted 額外參數。standard mode 回空 dict（無作用）。
+
+    - extra_colors：sam_refine 用，從 job 取（建立時 validator 已驗 > 0）
+    - weight_ratio：sam_weighted 用，預設 0.65（schema DEFAULT 一致；建立時 validator 已驗 0.5~0.8）
+    - bg_extra_blur：sam_weighted 用，缺失時取 detail preset 值（admin_production.md §1.2 表）；
+      與 resolve_engine_params 同樣假設 admin 後台目前只暴露 difficulty，detail 用「標準」。
+    """
+    from production.engine import DETAIL_PRESETS  # noqa: PLC0415
+
+    mode = str(job.mode)
+    if mode == "sam_refine":
+        return {"extra_colors": int(job.extra_colors) if job.extra_colors is not None else 0}
+    if mode == "sam_weighted":
+        # 標準 detail 的 bg_extra_blur=21（admin_production.md §1.2 表）
+        bg_default = DETAIL_PRESETS["標準"]["bg_extra_blur"]
+        return {
+            "weight_ratio": float(job.weight_ratio) if job.weight_ratio is not None else 0.65,
+            "bg_extra_blur": (
+                int(job.bg_extra_blur) if job.bg_extra_blur is not None else bg_default
+            ),
+        }
+    return {}
+
+
 def _run_engine_and_upload(
     job_id: str,
     image_url: str,
     params: dict[str, Any],
     uploaded_blob_paths_out: list[str],
+    mode: str = "standard",
+    mask_url: str | None = None,
+    sam_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """同步部分：下載 → 引擎 → 上傳。在 thread 中跑（避免 block event loop）。
 
     uploaded_blob_paths_out 是個 list，會 in-place append 已上傳的 blob path，
     讓外層在後續失敗時可以反向刪除。
+
+    mode / mask_url / sam_kwargs 用於 sam_refine / sam_weighted 路徑（Phase A）。
     """
+    sam_kwargs = sam_kwargs or {}
     tmp_dir = tempfile.mkdtemp(prefix=f"prod_{job_id}_")
     try:
         # 1. 下載原圖
@@ -291,9 +334,38 @@ def _run_engine_and_upload(
         src_path = os.path.join(tmp_dir, f"src{ext}")
         _download_image_to_path(image_url, src_path)
 
-        # 2. 跑引擎
+        # 2. 跑引擎（依 mode dispatch）
         out_dir = os.path.join(tmp_dir, "out")
-        engine_result = generate_standard(src_path, out_dir, **params)
+        if mode == "standard":
+            engine_result = generate_standard(src_path, out_dir, **params)
+        else:
+            # sam_refine / sam_weighted：先下載 mask
+            if not mask_url:
+                raise ValueError(f"mode={mode} 缺 mask_url（外層應已早 fail）")
+            mask_path = os.path.join(tmp_dir, "mask.png")
+            _download_image_to_path(mask_url, mask_path)
+
+            if mode == "sam_refine":
+                engine_result = generate_sam_refine(
+                    src_path, out_dir,
+                    mask_path=mask_path,
+                    **params,
+                    **sam_kwargs,
+                )
+            elif mode == "sam_weighted":
+                # sam_weighted 不走 set_final_pbn，砍掉 blur_*
+                weighted_params = {
+                    k: v for k, v in params.items()
+                    if k not in ("blur_ksize", "blur_sigma_color", "blur_sigma_space")
+                }
+                engine_result = generate_sam_weighted(
+                    src_path, out_dir,
+                    mask_path=mask_path,
+                    **weighted_params,
+                    **sam_kwargs,
+                )
+            else:
+                raise ValueError(f"未支援的 mode：{mode}")
 
         # 3. 上傳 3 個檔（svg / snapped 私有；filled 公開讀，admin UI 直接 <img>）
         token = uuid.uuid4().hex[:8]
@@ -684,7 +756,12 @@ def cancel_batch_remaining(self, batch_id: str) -> None:
 
 
 async def _cancel_batch_async(batch_id: str) -> None:
-    from sqlalchemy import update  # noqa: PLC0415
+    """Cancel batch 內仍 pending 的 job。
+
+    sam_* 模式只 cancel **已就緒**（mask_url 不為 null）的 pending；等待補 mask 的
+    pending sam_* job（mask_url=null）不該被誤 cancel — admin 補完 mask 還能重點 start_batch。
+    """
+    from sqlalchemy import or_, update  # noqa: PLC0415
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: PLC0415
     from sqlalchemy.pool import NullPool  # noqa: PLC0415
 
@@ -698,6 +775,10 @@ async def _cancel_batch_async(batch_id: str) -> None:
                 .where(
                     ProductionJob.batch_id == batch_id,
                     ProductionJob.status == JobStatusEnum.pending,
+                    or_(
+                        ProductionJob.mode == "standard",
+                        ProductionJob.mask_url.is_not(None),
+                    ),
                 )
                 .values(status=JobStatusEnum.cancelled)
             )

@@ -545,6 +545,30 @@ Response 200: JobDetailResponse（approved=false, approved_at=null）
 ### GET /admin/production/jobs/{id}/export-pdf
 **權限**：admin｜即時產生 PDF（SVG → Inkscape 轉換），直接回傳二進位下載
 
+### POST /admin/production/batches/{batch_id}/start
+**權限**：admin｜把 batch 內 sam_* 模式的 pending job 一次性送進 Celery 佇列
+
+```json
+Response 200: {
+  "enqueued": 3,
+  "skipped": [
+    { "job_id": "uuid", "reason": "missing mask_url" },
+    { "job_id": "uuid", "reason": "already processing" }
+  ]
+}
+Response 404: batch_id 不存在
+```
+
+> 為什麼有這個 endpoint：mode=sam_refine / sam_weighted 的 job 在 `POST /admin/production/jobs` 建立時**不會**自動 enqueue，因為 admin 必須先用 [POST /sam-mask](#post-adminproductionjobsidsam-mask) 編完遮罩才能送進 worker。
+> 此 endpoint 是 admin 編完整批 mask 後的「送出全批處理」動作。
+>
+> 行為：
+> - 只 enqueue `mode != standard` 且 `status = pending` 且 `mask_url != null` 的 job
+> - 缺 mask_url 的 → skipped 列表中標 `"missing mask_url"`，**不**整批拒絕
+> - 已 processing / completed / failed → skipped，避免重複觸發
+> - mode=standard 的 job 已在建立時 enqueue → skipped（防禦性處理；前端應已擋掉混批）
+> - 操作 idempotent；admin 可在補完缺漏 mask 後重點送出
+
 ---
 
 ## 模組八：顏色管理（Admin）

@@ -21,6 +21,7 @@ from production.schemas.request import (
     SuggestCanvasSizesRequest,
 )
 from production.schemas.response import (
+    BatchStartResponse,
     CreateJobsResponse,
     ImageListResponse,
     ImageResponse,
@@ -65,6 +66,22 @@ async def create_jobs(
         db, body.image_id, body.custom_request_id, jobs_params
     )
     return CreateJobsResponse(**result)
+
+
+@router.post(
+    "/admin/production/batches/{batch_id}/start",
+    response_model=BatchStartResponse,
+)
+async def start_batch(
+    batch_id: UUID,
+    operator=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """admin 編完 sam_* 批次的所有遮罩後，觸發整批進 Celery 佇列。
+
+    詳見 api.md POST /admin/production/batches/{batch_id}/start。
+    """
+    return await service.start_batch(db, batch_id)
 
 
 @router.get("/admin/production/jobs", response_model=JobListResponse)

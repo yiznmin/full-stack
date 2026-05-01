@@ -136,3 +136,13 @@ class SamMaskResponse(BaseModel):
     mask_url: str | None
     # 遮罩面積佔圖片面積比例 0~1；純 sam_points 等 Celery 推論時為 null
     mask_coverage: float | None
+
+
+class BatchStartSkippedItem(BaseModel):
+    job_id: UUID
+    reason: str  # "missing mask_url" / "already processing" / "already completed" / etc.
+
+
+class BatchStartResponse(BaseModel):
+    enqueued: int
+    skipped: list[BatchStartSkippedItem]

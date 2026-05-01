@@ -10,6 +10,8 @@ from production.engine import (
     DETAIL_PRESETS,
     DIFFICULTY_LEVELS,
     _calc_min_radius_px,
+    generate_sam_refine,
+    generate_sam_weighted,
     generate_standard,
     resolve_engine_params,
 )
@@ -187,3 +189,194 @@ def test_resolve_engine_params_unknown_difficulty_raises():
     )
     with pytest.raises(ValueError, match="未支援的難易度"):
         resolve_engine_params(job)
+
+
+# ── SAM wrapper tests ────────────────────────────────────────────────────────
+
+def _write_test_mask(path: str, w: int, h: int, fg_box: tuple[int, int, int, int]) -> None:
+    """寫一張灰階 mask PNG，fg_box=(x0, y0, x1, y1) 區域填 255、其餘 0。"""
+    mask = np.zeros((h, w), dtype=np.uint8)
+    x0, y0, x1, y1 = fg_box
+    mask[y0:y1, x0:x1] = 255
+    cv2.imwrite(path, mask)
+
+
+def test_generate_sam_refine_small_image_produces_files():
+    """sam_refine 完整跑通：圖、mask 同尺寸，refine_region 增加色數。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        mask = os.path.join(tmp, "mask.png")
+        out = os.path.join(tmp, "out")
+        _write_test_image(src, w=80, h=80)
+        _write_test_mask(mask, 80, 80, fg_box=(20, 20, 60, 60))
+
+        result = generate_sam_refine(
+            src,
+            out,
+            mask_path=mask,
+            num_colors=6,
+            pruning_threshold=8e-4,
+            blur_ksize=7,
+            blur_sigma_color=7,
+            blur_sigma_space=5,
+            prune_iterations=1,
+            canvas_w_cm=30,
+            canvas_h_cm=30,
+            min_brush_diam_cm=0.5,
+            extra_colors=4,
+            min_ratio_multiplier=0.3,
+        )
+
+        assert os.path.exists(result["svg_path"])
+        assert os.path.exists(result["filled_path"])
+        assert os.path.exists(result["snapped_rgb_path"])
+        assert result["num_colors_used"] >= 1
+        assert result["image_width"] == 80
+        assert result["image_height"] == 80
+
+
+def test_generate_sam_refine_invalid_extra_colors_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        mask = os.path.join(tmp, "mask.png")
+        _write_test_image(src, w=80, h=80)
+        _write_test_mask(mask, 80, 80, fg_box=(20, 20, 60, 60))
+        with pytest.raises(ValueError, match="extra_colors"):
+            generate_sam_refine(
+                src, os.path.join(tmp, "out"),
+                mask_path=mask,
+                num_colors=6, pruning_threshold=8e-4,
+                blur_ksize=7, blur_sigma_color=7, blur_sigma_space=5, prune_iterations=1,
+                canvas_w_cm=30, canvas_h_cm=30, min_brush_diam_cm=0.5,
+                extra_colors=0,
+            )
+
+
+def test_generate_sam_refine_empty_mask_raises():
+    """mask 全 0 → 裁切後仍為空 → 拒絕（避免下游 refine_region 噴錯）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        mask = os.path.join(tmp, "mask.png")
+        _write_test_image(src, w=80, h=80)
+        # 全 0 mask
+        cv2.imwrite(mask, np.zeros((80, 80), dtype=np.uint8))
+        with pytest.raises(ValueError, match="mask 裁切後為空"):
+            generate_sam_refine(
+                src, os.path.join(tmp, "out"),
+                mask_path=mask,
+                num_colors=6, pruning_threshold=8e-4,
+                blur_ksize=7, blur_sigma_color=7, blur_sigma_space=5, prune_iterations=1,
+                canvas_w_cm=30, canvas_h_cm=30, min_brush_diam_cm=0.5,
+                extra_colors=4,
+            )
+
+
+def test_generate_sam_refine_unreadable_mask_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        bad_mask = os.path.join(tmp, "mask.png")
+        _write_test_image(src, w=80, h=80)
+        with open(bad_mask, "wb") as f:
+            f.write(b"not actually a png")
+        with pytest.raises(ValueError, match="無法讀取 mask"):
+            generate_sam_refine(
+                src, os.path.join(tmp, "out"),
+                mask_path=bad_mask,
+                num_colors=6, pruning_threshold=8e-4,
+                blur_ksize=7, blur_sigma_color=7, blur_sigma_space=5, prune_iterations=1,
+                canvas_w_cm=30, canvas_h_cm=30, min_brush_diam_cm=0.5,
+                extra_colors=4,
+            )
+
+
+def test_generate_sam_refine_mask_resized_when_dimensions_differ():
+    """mask 與圖片不同尺寸時，自動 INTER_NEAREST resize 到圖片尺寸。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        mask = os.path.join(tmp, "mask.png")
+        _write_test_image(src, w=80, h=80)
+        # mask 故意較小：40x40，內部 fg_box
+        _write_test_mask(mask, 40, 40, fg_box=(10, 10, 30, 30))
+        # 不應拋例外（會 auto-resize）
+        result = generate_sam_refine(
+            src, os.path.join(tmp, "out"),
+            mask_path=mask,
+            num_colors=6, pruning_threshold=8e-4,
+            blur_ksize=7, blur_sigma_color=7, blur_sigma_space=5, prune_iterations=1,
+            canvas_w_cm=30, canvas_h_cm=30, min_brush_diam_cm=0.5,
+            extra_colors=4,
+        )
+        assert result["num_colors_used"] >= 1
+
+
+def test_generate_sam_weighted_small_image_produces_files():
+    """sam_weighted 完整跑通。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        mask = os.path.join(tmp, "mask.png")
+        out = os.path.join(tmp, "out")
+        _write_test_image(src, w=80, h=80)
+        _write_test_mask(mask, 80, 80, fg_box=(20, 20, 60, 60))
+
+        result = generate_sam_weighted(
+            src,
+            out,
+            mask_path=mask,
+            num_colors=6,
+            pruning_threshold=8e-4,
+            prune_iterations=1,
+            canvas_w_cm=30,
+            canvas_h_cm=30,
+            min_brush_diam_cm=0.5,
+            weight_ratio=0.65,
+            bg_extra_blur=0,
+            min_ratio_multiplier=0.3,
+        )
+
+        assert os.path.exists(result["svg_path"])
+        assert os.path.exists(result["filled_path"])
+        assert os.path.exists(result["snapped_rgb_path"])
+        assert result["num_colors_used"] >= 1
+
+
+def test_generate_sam_weighted_invalid_weight_ratio_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        mask = os.path.join(tmp, "mask.png")
+        _write_test_image(src, w=80, h=80)
+        _write_test_mask(mask, 80, 80, fg_box=(20, 20, 60, 60))
+        with pytest.raises(ValueError, match="weight_ratio"):
+            generate_sam_weighted(
+                src, os.path.join(tmp, "out"),
+                mask_path=mask,
+                num_colors=6, pruning_threshold=8e-4,
+                prune_iterations=1,
+                canvas_w_cm=30, canvas_h_cm=30, min_brush_diam_cm=0.5,
+                weight_ratio=0.4,  # < 0.5
+            )
+        with pytest.raises(ValueError, match="weight_ratio"):
+            generate_sam_weighted(
+                src, os.path.join(tmp, "out"),
+                mask_path=mask,
+                num_colors=6, pruning_threshold=8e-4,
+                prune_iterations=1,
+                canvas_w_cm=30, canvas_h_cm=30, min_brush_diam_cm=0.5,
+                weight_ratio=0.9,  # > 0.8
+            )
+
+
+def test_generate_sam_weighted_empty_mask_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "src.jpg")
+        mask = os.path.join(tmp, "mask.png")
+        _write_test_image(src, w=80, h=80)
+        cv2.imwrite(mask, np.zeros((80, 80), dtype=np.uint8))
+        with pytest.raises(ValueError, match="mask 裁切後為空"):
+            generate_sam_weighted(
+                src, os.path.join(tmp, "out"),
+                mask_path=mask,
+                num_colors=6, pruning_threshold=8e-4,
+                prune_iterations=1,
+                canvas_w_cm=30, canvas_h_cm=30, min_brush_diam_cm=0.5,
+                weight_ratio=0.65,
+            )

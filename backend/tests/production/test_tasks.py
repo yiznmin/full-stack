@@ -259,28 +259,6 @@ async def test_run_production_job_not_found_silent_return(db):
 
 
 @pytest.mark.asyncio
-async def test_run_production_job_unsupported_mode(db):
-    """mode=sam_refine 暫不支援 → status=failed、notes 提示 Phase 2-B。"""
-    image, job = await _seed_image_and_job(db, mode=ModeEnum.sam_refine)
-    # 補 extra_colors 避免 model 約束（雖然這 test 不會跑到引擎，不影響）
-    job.extra_colors = 5
-    await db.commit()
-
-    with patch("production.tasks.generate_standard") as mock_engine:
-        await _run_production_job_async(str(job.id))
-
-    refreshed = (await db.execute(
-        select(ProductionJob).where(ProductionJob.id == job.id)
-    )).scalar_one()
-    await db.refresh(refreshed)
-
-    assert refreshed.status == JobStatusEnum.failed
-    assert "standard" in (refreshed.notes or "")
-    # 引擎不該被呼叫
-    assert mock_engine.call_count == 0
-
-
-@pytest.mark.asyncio
 async def test_run_production_job_no_image_id(db):
     """custom_request 路徑：image_id is None → status=failed、提示要先指派 image。"""
     await _seed_admin(db)
