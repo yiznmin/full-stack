@@ -24,7 +24,7 @@ const error = ref<string | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let originalImageData: ImageData | null = null
 
-// 把 mappings 轉成「演算法色 → 實體色」的 LUT（key = `r,g,b`）
+// mappings 的 LUT（key = `r,g,b`）— 直接命中時極快
 const colorMap = computed(() => {
   const m = new Map<string, [number, number, number]>()
   for (const map of props.mappings) {
@@ -34,6 +34,24 @@ const colorMap = computed(() => {
   }
   return m
 })
+
+/** 給定 (r,g,b) 找最接近的 algorithm_rgb 對應的實體色；找不到 mapping 回 null。
+ * 用平方歐氏距離比較（夠用、不需 LAB 因為色塊本身已經是 quantized 後的近似色）。
+ */
+function _findNearestPhysical(
+  r: number, g: number, b: number,
+): [number, number, number] | null {
+  let best: { rgb: [number, number, number]; dist: number } | null = null
+  for (const map of props.mappings) {
+    if (!map.physical_color) continue
+    const [ar, ag, ab] = map.algorithm_rgb
+    const dist = (r - ar) ** 2 + (g - ag) ** 2 + (b - ab) ** 2
+    if (!best || dist < best.dist) {
+      best = { rgb: map.physical_color.rgb, dist }
+    }
+  }
+  return best?.rgb ?? null
+}
 
 async function loadImage() {
   if (!props.imageUrl || !canvasRef.value) return
@@ -71,13 +89,27 @@ function applyPhysical() {
   if (!ctx) return
   const data = new Uint8ClampedArray(originalImageData.data)
   const lut = colorMap.value
-  // 遍歷像素，對近似演算法色做替換
+  // 跳過白底像素（filled 圖背景，避免被誤對應為某色）
+  const WHITE_KEY = '255,255,255'
+  // 動態 memo：每個遇到的新 (r,g,b) 計算一次最近實體色，後續 O(1)
+  const memo = new Map<string, [number, number, number] | null>()
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i]
     const g = data[i + 1]
     const b = data[i + 2]
-    // 直接 key 命中（filled_template 像素值應與 algorithm_rgb 完全一致）
-    const target = lut.get(`${r},${g},${b}`)
+    const key = `${r},${g},${b}`
+    if (key === WHITE_KEY) continue
+    let target = lut.get(key)
+    if (!target) {
+      // 沒精確命中（filled 像素被 PNG 編碼或邊界 anti-alias 微微偏色）
+      // 改成最近 algorithm_rgb 對應的實體色
+      let cached = memo.get(key)
+      if (cached === undefined) {
+        cached = _findNearestPhysical(r, g, b)
+        memo.set(key, cached)
+      }
+      target = cached ?? undefined
+    }
     if (target) {
       data[i] = target[0]
       data[i + 1] = target[1]

@@ -273,6 +273,7 @@ async function complete() {
 
   <CopyMappingsDialog
     :open="copyOpen"
+    :job-id="jobId"
     :pending="copyMut.isPending.value"
     @close="copyOpen = false"
     @confirm="onConfirmCopy"

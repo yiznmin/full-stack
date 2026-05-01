@@ -5,6 +5,7 @@ import { toValue } from 'vue'
 import {
   completePaletteMappings,
   copyMappingsFromJob,
+  listCopyCandidates,
   listPaletteMappings,
   updatePaletteMapping,
 } from './api_mapping'
@@ -30,6 +31,18 @@ export function useUpdateMappingMutation(jobId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PM_KEYS.mappings(jobId) })
     },
+  })
+}
+
+export function useCopyCandidatesQuery(
+  jobId: MaybeRefOrGetter<string | undefined>,
+  enabled: MaybeRefOrGetter<boolean>,
+) {
+  return useQuery({
+    queryKey: ['admin', 'palette-mappings', jobId, 'copy-candidates'],
+    queryFn: () => listCopyCandidates(toValue(jobId)!),
+    enabled: () => !!toValue(jobId) && toValue(enabled),
+    staleTime: 30_000,
   })
 }
 

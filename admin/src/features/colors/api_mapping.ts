@@ -68,6 +68,24 @@ export function copyMappingsFromJob(jobId: string, sourceJobId: string) {
   )
 }
 
+export interface CopyCandidate {
+  job_id: string
+  detail: string
+  difficulty: string
+  canvas_w_cm: number
+  canvas_h_cm: number
+  num_colors_used: number | null
+  filled_template_url: string | null
+  relation: 'same_batch' | 'same_image'
+  created_at: string
+}
+
+export function listCopyCandidates(jobId: string) {
+  return request<{ items: CopyCandidate[] }>(
+    `/admin/production/jobs/${jobId}/palette-mappings/copy-candidates`,
+  )
+}
+
 export function completePaletteMappings(jobId: string) {
   return request<CompleteResponse>(
     `/admin/production/jobs/${jobId}/palette-mappings/complete`,

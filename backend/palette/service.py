@@ -12,6 +12,76 @@ from palette.models import MappedByEnum, PaletteColorMapping
 from production.models import ProductionJob
 
 
+async def list_copy_candidates(db: AsyncSession, job_id: UUID) -> list[dict]:
+    """列出可作為「從其他 job 複製對應」來源的 job：
+    - 同 batch_id 或同 image_id（admin_color.md §2.2）
+    - 已有完整 palette_color_mappings（每筆色號都對到 physical_color）
+    - 排除自己
+
+    回傳依 created_at desc 排序的 list[dict]，每筆已含 filled signed URL。
+    """
+    from sqlalchemy import and_, exists, func, or_
+
+    from production.service import _make_signed_url
+
+    target = await _get_job_or_404(db, job_id)
+
+    if target.batch_id is None and target.image_id is None:
+        return []
+
+    # 撈同批次或同原圖的其他 job
+    conditions = []
+    if target.batch_id is not None:
+        conditions.append(ProductionJob.batch_id == target.batch_id)
+    if target.image_id is not None:
+        conditions.append(ProductionJob.image_id == target.image_id)
+    related = (
+        await db.execute(
+            select(ProductionJob).where(
+                and_(
+                    or_(*conditions),
+                    ProductionJob.id != target.id,
+                    ProductionJob.status == "completed",
+                )
+            ).order_by(ProductionJob.created_at.desc())
+        )
+    ).scalars().all()
+
+    # 過濾出有完整 mapping 的 job（mapping 數 >= palette_json 長度）
+    items = []
+    for j in related:
+        if not j.palette_json:
+            continue
+        cnt = (
+            await db.execute(
+                select(func.count(PaletteColorMapping.id)).where(
+                    PaletteColorMapping.production_job_id == j.id
+                )
+            )
+        ).scalar()
+        if cnt < len(j.palette_json):
+            continue
+        relation = (
+            "same_batch"
+            if j.batch_id is not None and j.batch_id == target.batch_id
+            else "same_image"
+        )
+        items.append({
+            "job_id": j.id,
+            "detail": str(j.detail),
+            "difficulty": str(j.difficulty),
+            "canvas_w_cm": float(j.canvas_w_cm),
+            "canvas_h_cm": float(j.canvas_h_cm),
+            "num_colors_used": j.num_colors_used,
+            "filled_template_url": (
+                _make_signed_url(j.filled_template_url) if j.filled_template_url else None
+            ),
+            "relation": relation,
+            "created_at": j.created_at,
+        })
+    return items
+
+
 async def get_mappings(db: AsyncSession, job_id: UUID) -> list[dict]:
     job = await _get_job_or_404(db, job_id)
 
