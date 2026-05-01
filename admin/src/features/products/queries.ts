@@ -16,6 +16,7 @@ import {
   deleteTheme,
   deleteVariant,
   getProduct,
+  listAvailableJobs,
   listImages,
   listProducts,
   listSeries,
@@ -114,6 +115,18 @@ export function useAddVariantMutation(productId: string) {
       qc.invalidateQueries({ queryKey: KEYS.variants(productId) })
       qc.invalidateQueries({ queryKey: KEYS.productsList })
     },
+  })
+}
+
+export function useAvailableJobsQuery(
+  productId: MaybeRefOrGetter<string | undefined>,
+  enabled: MaybeRefOrGetter<boolean> = true,
+) {
+  return useQuery({
+    queryKey: ['products', 'available-jobs', productId],
+    queryFn: () => listAvailableJobs(toValue(productId)),
+    enabled: () => Boolean(toValue(enabled)),
+    staleTime: 10_000,
   })
 }
 

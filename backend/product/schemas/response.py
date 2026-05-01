@@ -144,12 +144,16 @@ class ProductDetailResponse(BaseModel):
 
 class AvailableJobResponse(BaseModel):
     id: UUID
+    # 同一張原圖的 jobs 共用 image_id，前端可據此分組（一張畫的不同規格放一起）
+    image_id: UUID | None = None
     detail: str
     difficulty: str
     canvas_w_cm: float
     canvas_h_cm: float
     num_colors_used: int
     price_formula_base: Decimal
+    # filled_template 縮圖（已轉 signed URL）— 給挑選變體時視覺辨認
+    preview_url: str | None = None
 
     model_config = {"from_attributes": True}
 

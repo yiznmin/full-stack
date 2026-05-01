@@ -192,6 +192,24 @@ export async function listVariants(productId: string): Promise<Variant[]> {
   return Array.isArray(res) ? res : res.items
 }
 
+export interface AvailableJob {
+  id: string
+  image_id: string | null
+  detail: string
+  difficulty: string
+  canvas_w_cm: number
+  canvas_h_cm: number
+  num_colors_used: number
+  price_formula_base: number
+  preview_url: string | null
+}
+
+/** 列出可作為新變體 production_job 的候選（已 approve、有色塊；可指定 product_id 排除已綁的）。 */
+export function listAvailableJobs(productId?: string) {
+  const q = productId ? `?product_id=${productId}` : ''
+  return request<{ items: AvailableJob[] }>(`/admin/production/jobs/available-for-variant${q}`)
+}
+
 export function addVariant(productId: string, payload: { production_job_id: string; price: number }) {
   return request<Variant>(`/admin/products/${productId}/variants`, {
     method: 'POST',

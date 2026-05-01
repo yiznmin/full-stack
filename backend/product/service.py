@@ -599,6 +599,7 @@ async def list_available_jobs(
     return [
         {
             "id": job.id,
+            "image_id": job.image_id,
             "detail": job.detail,
             "difficulty": job.difficulty,
             "canvas_w_cm": float(job.canvas_w_cm),
@@ -607,6 +608,7 @@ async def list_available_jobs(
             "price_formula_base": calc_price_formula_base(
                 float(job.canvas_w_cm), float(job.canvas_h_cm), job.detail, job.num_colors_used
             ),
+            "preview_url": _public_filled_url(job.filled_template_url),
         }
         for job in jobs
     ]
