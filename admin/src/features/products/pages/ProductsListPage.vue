@@ -75,11 +75,8 @@ async function handleDelete(row: ProductListItem) {
     await del.mutateAsync(row.id)
   } catch (e) {
     const err = e as { status?: number; message?: string }
-    if (err.status === 409) {
-      alert('此商品有進行中訂單或仍上架中，無法刪除。請先下架並等待訂單完成。')
-    } else {
-      alert(err.message || '刪除失敗')
-    }
+    // 409 直接顯示 backend 訊息（會具體說明是因為「上架中」還是「變體仍啟用」）
+    alert(err.message || '刪除失敗')
   } finally {
     deletingId.value = null
   }

@@ -23,12 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 def _public_filled_url(raw: str | None) -> str | None:
-    """把 production_jobs.filled_template_url 轉成瀏覽器可載入的 https URL。
+    """把 production_jobs.filled_template_url 轉成瀏覽器可載入的 https URL（短期預覽用）。
 
     - None → None
     - 已是 https → 直接回（兼容舊資料 / 測試 stub URL）
     - gs:// → 走 production._make_signed_url 產 15-min TTL signed URL
     - 解析失敗 → log warning + return None（避免一筆壞資料把整頁 list endpoint 弄掛）
+
+    ⚠ 這個 URL 有 15 分鐘 TTL，**不可寫入永久欄位（如 cover_image_url）**。
+    永久存放請用 _persistent_firebase_url。
     """
     if not raw:
         return None
@@ -40,6 +43,33 @@ def _public_filled_url(raw: str | None) -> str | None:
         return _make_signed_url(raw)
     except Exception as e:  # noqa: BLE001
         logger.warning("filled_template_url signed URL 失敗：%s — %s", raw, e)
+        return None
+
+
+def _persistent_firebase_url(raw: str | None) -> str | None:
+    """把 gs:// URL 轉成 Firebase 下載 URL（永久有效，公開讀由 storage.rules 控制）。
+
+    格式：https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media
+    用途：寫入永久欄位（如 products.cover_image_url），與 upload service 行為一致。
+    """
+    if not raw:
+        return None
+    if raw.startswith("https://") or raw.startswith("http://"):
+        return raw
+    if not raw.startswith("gs://"):
+        return None
+    try:
+        import urllib.parse  # noqa: PLC0415
+
+        # gs://bucket/path → bucket, path
+        bucket_and_path = raw[len("gs://"):]
+        bucket_name, _, path = bucket_and_path.partition("/")
+        if not bucket_name or not path:
+            return None
+        encoded = urllib.parse.quote(path, safe="")
+        return f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/{encoded}?alt=media"
+    except Exception as e:  # noqa: BLE001
+        logger.warning("gs:// → firebase download URL 失敗：%s — %s", raw, e)
         return None
 
 
@@ -402,16 +432,35 @@ async def update_product(db: AsyncSession, product_id: UUID, data: dict) -> dict
 
 async def delete_product(db: AsyncSession, product_id: UUID) -> None:
     product = await _get_product_or_404(db, product_id)
-    if product.status != ProductStatusEnum.off_sale:
+    # on_sale 不能直接刪（避免前台破圖）；draft / off_sale 都允許
+    if product.status == ProductStatusEnum.on_sale:
         raise ConflictError("請先將商品下架才能刪除")
-    active_variants = await db.execute(
-        select(func.count(ProductVariant.id)).where(
-            ProductVariant.product_id == product_id,
-            ProductVariant.is_active == True,  # noqa: E712
-        )
+
+    # 任何 status 都要檢查 OrderItem 引用：order_items.product_variant_id 沒設 ondelete=
+    # CASCADE，products → variants 是 CASCADE 但 variants → order_items 不是，硬刪會
+    # IntegrityError 500。雖然「draft 不應該有訂單」是設計直覺，但 update_product
+    # 沒擋反向 status 轉移（on_sale → draft 合法），不能假設 invariant 成立。
+    from orders.models import OrderItem  # noqa: PLC0415
+
+    referenced = await db.execute(
+        select(func.count(OrderItem.id))
+        .join(ProductVariant, OrderItem.product_variant_id == ProductVariant.id)
+        .where(ProductVariant.product_id == product_id)
     )
-    if (active_variants.scalar() or 0) > 0:
-        raise ConflictError("請先停用所有規格變體才能刪除商品")
+    if (referenced.scalar() or 0) > 0:
+        raise ConflictError("此商品的變體被訂單引用，無法刪除")
+
+    # off_sale 曾上架過，需確認 admin 已主動停用所有變體（避免誤刪有銷售紀錄的）
+    # draft 從未上架過 → 不需此檢查（前面已過 OrderItem 引用檢查）
+    if product.status == ProductStatusEnum.off_sale:
+        active_variants = await db.execute(
+            select(func.count(ProductVariant.id)).where(
+                ProductVariant.product_id == product_id,
+                ProductVariant.is_active == True,  # noqa: E712
+            )
+        )
+        if (active_variants.scalar() or 0) > 0:
+            raise ConflictError("請先停用所有規格變體才能刪除商品")
     await db.delete(product)
     await db.commit()
 
@@ -608,7 +657,10 @@ async def list_available_jobs(
             "price_formula_base": calc_price_formula_base(
                 float(job.canvas_w_cm), float(job.canvas_h_cm), job.detail, job.num_colors_used
             ),
+            # picker 顯示用（短期 signed URL）
             "preview_url": _public_filled_url(job.filled_template_url),
+            # 寫入 cover_image_url 永久欄位用（Firebase download URL）
+            "cover_url": _persistent_firebase_url(job.filled_template_url),
         }
         for job in jobs
     ]

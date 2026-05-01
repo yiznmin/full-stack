@@ -152,8 +152,10 @@ class AvailableJobResponse(BaseModel):
     canvas_h_cm: float
     num_colors_used: int
     price_formula_base: Decimal
-    # filled_template 縮圖（已轉 signed URL）— 給挑選變體時視覺辨認
+    # 短期預覽 URL（15-min signed）— 只用於 picker 內顯示縮圖，不可寫永久欄位
     preview_url: str | None = None
+    # 永久公開 URL（Firebase download URL）— 給「從製作任務選封面」寫入 cover_image_url
+    cover_url: str | None = None
 
     model_config = {"from_attributes": True}
 

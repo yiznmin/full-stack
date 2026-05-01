@@ -201,7 +201,10 @@ export interface AvailableJob {
   canvas_h_cm: number
   num_colors_used: number
   price_formula_base: number
+  /** 短期 signed URL — 只用於 picker 顯示縮圖（15 分鐘 TTL） */
   preview_url: string | null
+  /** 永久 Firebase 下載 URL — 寫入永久欄位（如 cover_image_url）用 */
+  cover_url: string | null
 }
 
 /** 列出可作為新變體 production_job 的候選（已 approve、有色塊；可指定 product_id 排除已綁的）。 */

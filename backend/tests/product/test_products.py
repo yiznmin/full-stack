@@ -339,6 +339,79 @@ async def test_delete_product_with_active_variant(client: AsyncClient, db):
 
 
 @pytest.mark.asyncio
+async def test_delete_draft_product_with_active_variant_ok(client: AsyncClient, db):
+    """draft（從未上架）可直接刪，即使 variant.is_active=True 也行（無訂單引用前提下）。"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    product = await _create_product(db, status=ProductStatusEnum.draft)
+    job = await _create_approved_job(db)
+    db.add(ProductVariant(
+        product_id=product.id, production_job_id=job.id,
+        price=Decimal("399"), price_formula_base=Decimal("397"), is_active=True,
+    ))
+    await db.commit()
+    res = await client.delete(f"{PRODUCTS_URL}/{product.id}")
+    assert res.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_delete_draft_with_referenced_variant_409(client: AsyncClient, db):
+    """draft 商品若有 variant 被 OrderItem 引用 → 409，不可硬刪（避免 IntegrityError）。
+
+    防護 update_product 把 on_sale → off_sale → draft 反向降級後變體仍被舊訂單引用的情境。
+    """
+    from datetime import UTC, datetime
+
+    from auth.models import User
+    from orders.models import Order, OrderItem, OrderStatusEnum
+
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    product = await _create_product(db, status=ProductStatusEnum.draft)
+    job = await _create_approved_job(db)
+    variant = ProductVariant(
+        product_id=product.id, production_job_id=job.id,
+        price=Decimal("399"), price_formula_base=Decimal("397"), is_active=True,
+    )
+    db.add(variant)
+    await db.flush()
+
+    customer = User(
+        name="cust",
+        email=f"cust_{uuid.uuid4().hex[:6]}@example.com",
+        password_hash="x",
+        role="customer",
+        is_active=True,
+        is_email_verified=True,
+    )
+    db.add(customer)
+    await db.flush()
+    order = Order(
+        order_number=f"PL-{uuid.uuid4().hex[:8]}",
+        user_id=customer.id, status=OrderStatusEnum.paid,
+        subtotal=399, discount_amount=0, shipping_fee=0, total=399,
+        shipping_type="home", shipping_snapshot={},
+        created_at=datetime.now(UTC),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(OrderItem(
+        order_id=order.id,
+        product_variant_id=variant.id,
+        product_title_snapshot="x",
+        variant_spec_snapshot={},
+        unit_price=399, quantity=1, fulfilled_qty=0, preorder_qty=0,
+        is_returned=False,
+    ))
+    await db.commit()
+
+    res = await client.delete(f"{PRODUCTS_URL}/{product.id}")
+    assert res.status_code == 409
+    body = res.json()
+    assert "訂單" in body.get("detail", "")
+
+
+@pytest.mark.asyncio
 async def test_delete_product_cascades_product_tags(client: AsyncClient, db):
     """刪除商品後 product_tags 關聯應自動移除。"""
     await _make_admin(client, db)

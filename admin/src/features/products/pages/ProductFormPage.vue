@@ -39,7 +39,11 @@ const { data: existing, isLoading: loadingExisting } = useProductQuery(productId
 const createMut = useCreateProductMutation()
 const updateMut = useUpdateProductMutation()
 
-const tab = ref<'basic' | 'variants' | 'images'>('basic')
+// tab 可從 query 帶入（建立商品後 redirect 進來會帶 ?tab=variants）
+const initialTab = (typeof route.query.tab === 'string' && ['basic', 'variants', 'images'].includes(route.query.tab))
+  ? route.query.tab as 'basic' | 'variants' | 'images'
+  : 'basic'
+const tab = ref<'basic' | 'variants' | 'images'>(initialTab)
 const apiError = ref<string | null>(null)
 
 const { handleSubmit, errors, defineField, setValues, values } = useForm<ProductFormValues>({
@@ -91,7 +95,8 @@ async function doSubmit(payload: ProductFormValues) {
   try {
     if (isCreate.value) {
       const created = await createMut.mutateAsync(payload as never)
-      router.replace(`/admin/products/${created.id}`)
+      // 建立後跳到變體 tab，admin 自己按「新增變體」開 picker（不自動彈窗）
+      router.replace(`/admin/products/${created.id}?tab=variants`)
     } else if (productId.value) {
       await updateMut.mutateAsync({ id: productId.value, payload: payload as never })
     }

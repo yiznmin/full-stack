@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Image as ImageIcon, Loader2, Sparkles, Upload, X } from 'lucide-vue-next'
+import { Image as ImageIcon, Loader2, Sparkles, Upload, X, Wand2 } from 'lucide-vue-next'
 
 import { uploadFile } from '../api'
 import VariantTemplatePicker from './VariantTemplatePicker.vue'
+import CoverFromJobDialog from './CoverFromJobDialog.vue'
 
 const props = defineProps<{
   modelValue: string
@@ -17,11 +18,16 @@ const emit = defineEmits<{
 }>()
 
 const pickerOpen = ref(false)
+const jobPickerOpen = ref(false)
 
 function onPickFromTemplate(urls: string[]) {
   if (urls.length > 0) {
     emit('update:modelValue', urls[0])
   }
+}
+
+function onPickFromJob(url: string) {
+  emit('update:modelValue', url)
 }
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -79,7 +85,7 @@ function clear() {
     >
       <ImageIcon :size="32" :stroke-width="1.25" class="text-aux-rice-mid" />
       <p class="text-[13px]">封面圖（JPEG / PNG, ≤ 20MB）</p>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap justify-center">
         <button
           type="button"
           class="h-9 px-3 inline-flex items-center gap-1.5 rounded-[var(--radius-xs)] border border-line-strong text-[13px] text-ink-default hover:bg-paper-subtle transition-colors"
@@ -87,6 +93,14 @@ function clear() {
         >
           <Upload :size="14" :stroke-width="1.5" />
           上傳新圖
+        </button>
+        <button
+          type="button"
+          class="h-9 px-3 inline-flex items-center gap-1.5 rounded-[var(--radius-xs)] border border-line-strong text-[13px] text-ink-default hover:bg-paper-subtle transition-colors"
+          @click="jobPickerOpen = true"
+        >
+          <Wand2 :size="14" :stroke-width="1.5" />
+          從製作任務選
         </button>
         <button
           v-if="productId"
@@ -127,6 +141,14 @@ function clear() {
           替換
         </button>
         <button
+          type="button"
+          class="h-9 px-3 rounded-[var(--radius-xs)] bg-paper-surface text-ink-strong text-[13px] font-medium hover:bg-paper-subtle transition-colors flex items-center gap-1.5"
+          @click="jobPickerOpen = true"
+        >
+          <Wand2 :size="14" :stroke-width="1.5" />
+          從製作任務選
+        </button>
+        <button
           v-if="productId"
           type="button"
           class="h-9 px-3 rounded-[var(--radius-xs)] bg-paper-surface text-ink-strong text-[13px] font-medium hover:bg-paper-subtle transition-colors flex items-center gap-1.5"
@@ -155,6 +177,13 @@ function clear() {
       mode="single"
       @close="pickerOpen = false"
       @pick="onPickFromTemplate"
+    />
+
+    <CoverFromJobDialog
+      :open="jobPickerOpen"
+      :product-id="productId"
+      @close="jobPickerOpen = false"
+      @pick="onPickFromJob"
     />
   </div>
 </template>
