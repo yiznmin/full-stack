@@ -19,10 +19,12 @@ const emit = defineEmits<{
 // 兩種顯示模式：演算法原色 / 實體色預覽（替換 algo→physical）
 const mode = ref<'algorithm' | 'physical'>('algorithm')
 const loading = ref(false)
+const rendering = ref(false)  // 切到 physical 模式時的計算中（首次 1~2 秒）
 const error = ref<string | null>(null)
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let originalImageData: ImageData | null = null
+let physicalImageData: ImageData | null = null  // 預算好的實體色版本，切換 O(1)
 
 // mappings 的 LUT（key = `r,g,b`）— 直接命中時極快
 const colorMap = computed(() => {
@@ -75,6 +77,7 @@ async function loadImage() {
     if (!ctx) return
     ctx.drawImage(img, 0, 0, c.width, c.height)
     originalImageData = ctx.getImageData(0, 0, c.width, c.height)
+    _invalidatePhysicalCache()
     if (mode.value === 'physical') applyPhysical()
   } catch (e) {
     error.value = (e as Error).message
@@ -83,15 +86,13 @@ async function loadImage() {
   }
 }
 
-function applyPhysical() {
-  if (!canvasRef.value || !originalImageData) return
-  const ctx = canvasRef.value.getContext('2d')
-  if (!ctx) return
+/** 計算 physical-mode 的 ImageData 並快取。第一次切換時跑（800×1067 圖約 1~2 秒），
+ *  後續切換 O(1) 直接用快取結果。mappings 改動時呼叫 _invalidatePhysicalCache 重算。 */
+function _buildPhysicalImageData(): ImageData | null {
+  if (!originalImageData) return null
   const data = new Uint8ClampedArray(originalImageData.data)
   const lut = colorMap.value
-  // 跳過白底像素（filled 圖背景，避免被誤對應為某色）
   const WHITE_KEY = '255,255,255'
-  // 動態 memo：每個遇到的新 (r,g,b) 計算一次最近實體色，後續 O(1)
   const memo = new Map<string, [number, number, number] | null>()
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i]
@@ -101,8 +102,6 @@ function applyPhysical() {
     if (key === WHITE_KEY) continue
     let target = lut.get(key)
     if (!target) {
-      // 沒精確命中（filled 像素被 PNG 編碼或邊界 anti-alias 微微偏色）
-      // 改成最近 algorithm_rgb 對應的實體色
       let cached = memo.get(key)
       if (cached === undefined) {
         cached = _findNearestPhysical(r, g, b)
@@ -116,8 +115,25 @@ function applyPhysical() {
       data[i + 2] = target[2]
     }
   }
-  const next = new ImageData(data, originalImageData.width, originalImageData.height)
-  ctx.putImageData(next, 0, 0)
+  return new ImageData(data, originalImageData.width, originalImageData.height)
+}
+
+function _invalidatePhysicalCache() {
+  physicalImageData = null
+}
+
+async function applyPhysical() {
+  if (!canvasRef.value || !originalImageData) return
+  const ctx = canvasRef.value.getContext('2d')
+  if (!ctx) return
+  if (!physicalImageData) {
+    rendering.value = true
+    // 等下一 frame 讓 spinner 先 paint，再做重活
+    await new Promise<void>((r) => requestAnimationFrame(() => r()))
+    physicalImageData = _buildPhysicalImageData()
+    rendering.value = false
+  }
+  if (physicalImageData) ctx.putImageData(physicalImageData, 0, 0)
 }
 
 function applyOriginal() {
@@ -133,11 +149,15 @@ watch(mode, (m) => {
 })
 
 watch(() => props.mappings, () => {
-  // 對應改變時，若目前在實體色模式則即時重繪
+  // 對應改變 → physical cache 失效；若目前在實體色模式則重繪
+  _invalidatePhysicalCache()
   if (mode.value === 'physical') applyPhysical()
 }, { deep: true })
 
-watch(() => props.imageUrl, () => loadImage(), { immediate: false })
+watch(() => props.imageUrl, () => {
+  _invalidatePhysicalCache()
+  loadImage()
+}, { immediate: false })
 
 onMounted(() => loadImage())
 
@@ -169,12 +189,18 @@ function onClick(e: MouseEvent) {
       <p class="text-[12px] text-ink-muted">點圖片可選色塊</p>
       <button
         type="button"
-        class="text-[12px] inline-flex items-center gap-1 text-ink-muted hover:text-ink-strong transition-colors"
+        class="text-[12px] inline-flex items-center gap-1 text-ink-muted hover:text-ink-strong transition-colors disabled:opacity-50 disabled:cursor-wait"
+        :disabled="rendering"
         @click="mode = mode === 'algorithm' ? 'physical' : 'algorithm'"
       >
-        <Eye v-if="mode === 'algorithm'" :size="12" :stroke-width="1.5" />
+        <Loader2 v-if="rendering" :size="12" :stroke-width="1.5" class="animate-spin" />
+        <Eye v-else-if="mode === 'algorithm'" :size="12" :stroke-width="1.5" />
         <EyeOff v-else :size="12" :stroke-width="1.5" />
-        {{ mode === 'algorithm' ? '切到實體色預覽' : '切回演算法原色' }}
+        {{
+          rendering
+            ? '計算中…'
+            : mode === 'algorithm' ? '切到實體色預覽' : '切回演算法原色'
+        }}
       </button>
     </div>
 
