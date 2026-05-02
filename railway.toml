@@ -1,8 +1,26 @@
-# 已棄用 — 改用 per-service 配置：
-#   paint-web    → railway.web.toml
-#   paint-worker → railway.worker.toml
+# Railway 部署配置 — yiimui 專案
 #
-# 各 service 在 Railway dashboard 設定：
-#   Settings → Source → Config Path = railway.{web,worker}.toml
+# 兩個 service 共用同一個 Docker image（backend/Dockerfile）：
+#   - paint-web    → 預設跑 Dockerfile CMD = bash scripts/start_web.sh
+#   - paint-worker → 用 env var RAILWAY_RUN_COMMAND = bash scripts/start_worker.sh 覆寫
 #
-# 此檔保留為空殼，避免 Railway 預設讀到舊內容。
+# Plugin（在 Railway dashboard 加）：
+#   - PostgreSQL（自動注入 DATABASE_URL）
+#   - Redis（自動注入 REDIS_URL）
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "backend/Dockerfile"
+rootDirectory = "."
+
+[deploy]
+# startCommand **不寫**這裡 — 寫了會鎖死兩個 service。
+#   paint-web    → Dockerfile CMD（預設）= bash scripts/start_web.sh
+#   paint-worker → 用 env var RAILWAY_RUN_COMMAND 覆寫為 bash scripts/start_worker.sh
+
+# healthcheck **不寫**這裡 — 寫了會套到 paint-worker，worker 沒 HTTP 必失敗導致無限 restart。
+#   paint-web 的 /health healthcheck 由 Railway 自身在沒設定時不執行；
+#   實務上 paint-web Active 後即正常服務，不依賴 healthcheck。
+
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
