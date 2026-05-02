@@ -15,9 +15,11 @@ ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:5175",
-    # 上線後在這裡加 Vercel 網域，例如：
-    # "https://yiimui-admin.vercel.app",
+    # 部署環境
+    "https://yiimui-admin.vercel.app",
+    # 未來：
     # "https://yiimui-store.vercel.app",
+    # "https://admin.yiimui.com",  # Phase 17.4 自訂 domain 後加
 ]
 
 CORS_RULES = [
