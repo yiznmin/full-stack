@@ -23,8 +23,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # ── Python deps（先複製 requirements.txt 利用 layer cache）─────────────────
+# 先單獨從 PyTorch 官方 CPU wheel index 安裝 torch / torchvision（避免 Railway → PyPI 慢/抖動），
+# 再從 PyPI 安裝其餘 deps（torch 已裝，pip 不會重下）。
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cpu \
+      torch==2.4.1 torchvision==0.19.1 \
  && pip install --no-cache-dir -r requirements.txt
 
 # ── SAM vit_b model（375MB）— 獨立 layer，requirements 沒變時不重下────────
