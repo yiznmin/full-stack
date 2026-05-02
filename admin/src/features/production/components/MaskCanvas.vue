@@ -48,6 +48,7 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLDivElement | null>(null)
 const innerRef = ref<HTMLDivElement | null>(null)
+const maskOverlayCanvasRef = ref<HTMLCanvasElement | null>(null)
 
 // ── Zoom & Pan ─────────────────────────────────────────────────────────
 const zoom = ref(1)
@@ -223,6 +224,59 @@ onUnmounted(() => {
 // 換圖時 reset view
 watch(() => props.imageUrl, () => resetView())
 
+// ── Mask overlay Canvas 渲染（取代 CSS mask-image 的不可靠行為）─────────
+// 載入 mask PNG → 在 canvas 上把白色像素塗綠色不透明、黑色像素留透明 alpha=0
+async function renderMaskOverlay(maskUrl: string) {
+  const canvas = maskOverlayCanvasRef.value
+  if (!canvas) return
+  try {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('mask image load failed'))
+      img.src = maskUrl
+    })
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // 1. 把 mask 畫到 canvas
+    ctx.drawImage(img, 0, 0)
+    // 2. 像素級替換：白 → 綠色不透明、黑 → 透明
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const buf = data.data
+    for (let i = 0; i < buf.length; i += 4) {
+      // 用 RGB 平均判斷亮度（不靠 alpha）
+      const lum = (buf[i] + buf[i + 1] + buf[i + 2]) / 3
+      if (lum > 127) {
+        buf[i] = 34
+        buf[i + 1] = 197
+        buf[i + 2] = 94
+        buf[i + 3] = 255
+      } else {
+        buf[i + 3] = 0
+      }
+    }
+    ctx.putImageData(data, 0, 0)
+  } catch (e) {
+    // 載入失敗時 silently 不渲染（不擋 SAM 點選）
+    console.warn('mask overlay render failed:', e)
+  }
+}
+
+watch(
+  () => [props.maskUrl, props.hideMask] as const,
+  async ([url, hidden]) => {
+    if (!url || hidden) return
+    // 等下個 tick 確保 canvas 已掛
+    await new Promise(r => setTimeout(r, 0))
+    await renderMaskOverlay(url)
+  },
+  { immediate: true },
+)
+
 const cursorClass = computed(() => {
   if (props.isLocked) return 'cursor-not-allowed'
   if (isPanning.value) return 'cursor-grabbing'
@@ -258,25 +312,15 @@ const inv = computed(() => 1 / zoom.value)
         draggable="false"
       />
 
-      <!-- mask overlay：CSS mask-image 限制純色到 mask 白色區。
-           Backend 產的 PNG 若含 alpha channel（全不透明），瀏覽器預設用 alpha
-           當 mask → 整張顯示綠色（bug）。強制 mask-mode: luminance 用亮度判斷：
-           白色像素 = 顯示綠色、黑色像素 = 透明。 -->
-      <div
+      <!-- mask overlay：用 Canvas 像素級合成（取代 CSS mask-image）。
+           CSS mask-image 對 backend 產的 RGBA PNG（黑底/白選取區/alpha=255）
+           即使設 mask-mode: luminance，Chrome 仍渲染為整張綠色（已驗證）。
+           Canvas 合成保證正確：mask 白 → 綠色不透明；mask 黑 → 透明。 -->
+      <canvas
         v-if="maskUrl && !hideMask"
-        class="absolute inset-0 pointer-events-none"
-        :style="{
-          backgroundColor: 'rgb(34, 197, 94)',
-          opacity: 0.45,
-          WebkitMaskImage: `url('${maskUrl}')`,
-          maskImage: `url('${maskUrl}')`,
-          WebkitMaskSize: '100% 100%',
-          maskSize: '100% 100%',
-          WebkitMaskRepeat: 'no-repeat',
-          maskRepeat: 'no-repeat',
-          WebkitMaskMode: 'luminance',
-          maskMode: 'luminance',
-        }"
+        ref="maskOverlayCanvasRef"
+        class="absolute inset-0 w-full h-full pointer-events-none"
+        :style="{ opacity: 0.55 }"
         aria-label="mask overlay"
       />
 
