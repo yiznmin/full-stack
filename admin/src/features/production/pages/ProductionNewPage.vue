@@ -20,6 +20,7 @@ import Select from '@/shared/ui/Select.vue'
 import Input from '@/shared/ui/Input.vue'
 
 import { useCreateJobsMutation } from '../queries'
+import { validateCombos } from '../utils/validateCombos'
 import {
   CANVAS_SIZES,
   DETAIL_LABEL,
@@ -260,22 +261,8 @@ const detailOptions: { value: Detail; label: string }[] = [
 ]
 
 // ── 提交 ──────────────────────────────────────────────────────────────
-const comboValidationError = computed<string | null>(() => {
-  for (let i = 0; i < combos.value.length; i++) {
-    const c = combos.value[i]
-    if (c.mode === 'sam_refine') {
-      if (!c.extra_colors || c.extra_colors <= 0) {
-        return `組合 #${i + 1}（SAM 細化）的 extra_colors 必須 > 0`
-      }
-    }
-    if (c.mode === 'sam_weighted') {
-      if (c.weight_ratio < 0.5 || c.weight_ratio > 0.8) {
-        return `組合 #${i + 1}（SAM 加權）的 weight_ratio 必須在 0.5–0.8 之間`
-      }
-    }
-  }
-  return null
-})
+// 驗證邏輯抽到 utils/validateCombos（給 vitest 測），這裡 wrap 為 reactive computed
+const comboValidationError = computed<string | null>(() => validateCombos(combos.value))
 
 const canSubmit = computed(() => {
   if (combos.value.length === 0) return false

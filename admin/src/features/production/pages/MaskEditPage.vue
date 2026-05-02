@@ -30,6 +30,7 @@ import Card from '@/shared/ui/Card.vue'
 
 import MaskCanvas from '../components/MaskCanvas.vue'
 import MaskToolbar, { type MaskTool } from '../components/MaskToolbar.vue'
+import { useMaskActions } from '../composables/useMaskActions'
 import { useJobQuery, useStartBatchMutation } from '../queries'
 import { getJobSignedUrl, type SamPoint } from '../api'
 
@@ -83,33 +84,36 @@ async function loadImageDims(url: string) {
   })
 }
 
-// ── 編輯狀態 ────────────────────────────────────────────────────────
+// ── 編輯狀態 — actionStack 邏輯抽到 useMaskActions composable（可被 vitest 測試）───
 const tool = ref<MaskTool>('sam')
-const samPoints = ref<SamPoint[]>([])
-const polygons = ref<number[][][]>([])
-const currentPolygon = ref<number[][]>([])
 
-// undo stack — 每筆動作可被 Ctrl+Z 還原
-type Action =
-  | { type: 'sam'; point: SamPoint }
-  | { type: 'poly_vertex'; vertex: [number, number] }
-  | { type: 'poly_close'; polygon: number[][] }
-  | { type: 'sam_delete'; point: SamPoint; index: number }
-  | { type: 'poly_delete'; polygon: number[][]; index: number }
-  | {
-      type: 'clear'
-      samPoints: SamPoint[]
-      polygons: number[][][]
-      currentPolygon: number[][]
-    }
-const actionStack = ref<Action[]>([])
+// onChange callback：所有 commit 動作（addSam / closePolygon / delete / undo）後觸發
+// debounce 送 sam-mask（triggerSamMask 在下方定義，這裡只引用）
+const actions = useMaskActions({ onChange: () => triggerSamMask() })
+const {
+  samPoints,
+  polygons,
+  currentPolygon,
+  canUndo,
+  addSamPoint,
+  addPolygonVertex,
+  closePolygon,
+  deleteSamPoint,
+  deletePolygon,
+  undo,
+  cancelCurrentPolygon,
+} = actions
 
-const canUndo = computed(() => actionStack.value.length > 0)
+// clearAll 額外要清 maskUrl（composable 不知道有 mask URL 概念）
+function clearAll() {
+  actions.clearAll()
+  maskUrl.value = null
+}
+
 const canConfirm = computed(() => {
   if (isLocked.value) return false
   // 至少有一個 sam_point、一個閉合 polygon、或任何進行中頂點
   // 進行中頂點 < 3 時 confirm() 會跳警告；≥ 3 時會自動閉合
-  // 改成 length > 0 是為了讓使用者點得到按鈕、看得到警告（而非按鈕灰著卡死）
   return (
     samPoints.value.length > 0 ||
     polygons.value.length > 0 ||
@@ -126,94 +130,10 @@ watch(job, (j) => {
     polygons?: number[][][]
     mask_url?: string | null
   }
-  if (anyJ.sam_points) samPoints.value = [...anyJ.sam_points]
-  if (anyJ.polygons) polygons.value = anyJ.polygons.map((p) => [...p])
+  actions.hydrate({ samPoints: anyJ.sam_points, polygons: anyJ.polygons })
   if (anyJ.mask_url) maskUrl.value = anyJ.mask_url
   hasHydrated.value = true
 }, { immediate: true })
-
-// ── 互動 handler ────────────────────────────────────────────────────
-function addSamPoint(point: SamPoint) {
-  samPoints.value.push(point)
-  actionStack.value.push({ type: 'sam', point })
-  triggerSamMask()
-}
-function addPolygonVertex(vertex: [number, number]) {
-  currentPolygon.value.push(vertex)
-  actionStack.value.push({ type: 'poly_vertex', vertex })
-}
-function closePolygon() {
-  if (currentPolygon.value.length < 3) return
-  const closed = [...currentPolygon.value]
-  polygons.value.push(closed)
-  actionStack.value.push({ type: 'poly_close', polygon: closed })
-  currentPolygon.value = []
-  triggerSamMask()
-}
-function deleteSamPoint(idx: number) {
-  if (idx < 0 || idx >= samPoints.value.length) return
-  const removed = samPoints.value.splice(idx, 1)[0]
-  actionStack.value.push({ type: 'sam_delete', point: removed, index: idx })
-  triggerSamMask()
-}
-function deletePolygon(idx: number) {
-  if (idx < 0 || idx >= polygons.value.length) return
-  const removed = polygons.value.splice(idx, 1)[0]
-  actionStack.value.push({ type: 'poly_delete', polygon: removed, index: idx })
-  triggerSamMask()
-}
-function undo() {
-  const last = actionStack.value.pop()
-  if (!last) return
-  if (last.type === 'sam') {
-    samPoints.value.pop()
-  } else if (last.type === 'poly_vertex') {
-    currentPolygon.value.pop()
-  } else if (last.type === 'poly_close') {
-    polygons.value.pop()
-    currentPolygon.value = last.polygon
-  } else if (last.type === 'sam_delete') {
-    samPoints.value.splice(last.index, 0, last.point)
-  } else if (last.type === 'poly_delete') {
-    polygons.value.splice(last.index, 0, last.polygon)
-  } else if (last.type === 'clear') {
-    samPoints.value = last.samPoints
-    polygons.value = last.polygons
-    currentPolygon.value = last.currentPolygon
-  }
-  triggerSamMask()
-}
-
-function clearAll() {
-  // 把整個 state 推進 actionStack — 撤銷可還原
-  actionStack.value.push({
-    type: 'clear',
-    samPoints: [...samPoints.value],
-    polygons: polygons.value.map((p) => [...p]),
-    currentPolygon: [...currentPolygon.value],
-  })
-  samPoints.value = []
-  polygons.value = []
-  currentPolygon.value = []
-  maskUrl.value = null
-}
-
-function cancelCurrentPolygon() {
-  if (currentPolygon.value.length === 0) return
-  // 把 actionStack 裡屬於這個進行中 polygon 的連續 poly_vertex pop 掉
-  const n = currentPolygon.value.length
-  let popped = 0
-  while (popped < n && actionStack.value.length > 0) {
-    const top = actionStack.value[actionStack.value.length - 1]
-    if (top.type === 'poly_vertex') {
-      actionStack.value.pop()
-      popped++
-    } else {
-      break
-    }
-  }
-  currentPolygon.value = []
-}
 
 // ── 送 sam-mask（debounce 300ms）────────────────────────────────────
 const maskUrl = ref<string | null>(null)
