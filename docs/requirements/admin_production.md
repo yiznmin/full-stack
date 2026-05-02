@@ -298,7 +298,32 @@ admin 點 template.svg 上某一格時，前端取該 polygon 的 SVG `id="rN"` 
 
 ---
 
-## 1.10 資料庫欄位
+## 1.10 刪除任務（硬刪除）
+
+管理員可在任務詳情頁右上角點「刪除任務」（2-click 確認）對任務執行硬刪除。
+
+**業務規則**
+- `status = processing` → 拒絕（worker 仍在寫入；強行刪會 race 導致殘留檔案 / 例外）
+- 任務被以下任一表引用 → 拒絕（防止商品 / 訂單 / 列印批次斷鏈）
+  - `product_variants` — 任務已上架為某商品 variant
+  - `print_batches` — 任務已加入列印批次
+  - `order_items` — 任務已被下單
+- 其他狀態（`pending` / `failed` / `cancelled` / 未上架的 `completed`）→ 允許
+
+**刪除動作**（在單一 transaction 內）
+1. DELETE `palette_color_mappings` WHERE `production_job_id = X`（FK NOT NULL，schema 無 ondelete CASCADE，需手動刪子資料）
+2. DELETE `production_jobs` WHERE `id = X`
+3. commit
+4. **Firebase 物件 best-effort 清理**（commit 後另起）：`svg_url` / `filled_template_url` / `snapped_rgb_url` / `mask_url` 四個 blob 各自 `bucket.blob(...).delete()`；任一失敗只 log warning，不回滾 DB（DB 已 commit）
+
+**設計理由**
+- 完整刪除（含 Firebase）避免儲存空間累積（每筆 sam_refine 約 5-10 MB Firebase 物件）
+- 引用檢查放後端而非前端：避免 race（admin 在前端看不到引用、但實際剛上架）
+- Firebase 失敗 log 不回滾：物件刪除是 best-effort 清理，DB row 已不存在後不可能「未刪除」狀態
+
+---
+
+## 1.11 資料庫欄位
 
 **原始圖片表（images）**
 

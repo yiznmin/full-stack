@@ -392,6 +392,21 @@
 - **DB 寫入**:UPSERT `palette_color_mappings`,計算並寫入 `required_ml`
 - **來源**:`admin_color.md §2.7, §2.8`
 
+### E32-D|管理員硬刪除製作任務（ROUND ‑ 2026-05-02 補）
+
+- **觸發者**:管理員於任務詳情頁點「刪除任務」（2-click 確認）
+- **拒絕條件**:
+  - `production_jobs.status = processing`（worker 寫入中，回 400）
+  - 被 `product_variants` / `print_batches` / `order_items` 任一引用（回 400 含具體計數）
+- **DB 寫入**（單一 transaction）:
+  - DELETE `palette_color_mappings` WHERE `production_job_id = X`（schema 無 ondelete CASCADE，手動刪子資料）
+  - DELETE `production_jobs` WHERE `id = X`
+- **Firebase Storage 清理**（commit 後 best-effort）:
+  - 逐一刪 `svg_url` / `filled_template_url` / `snapped_rgb_url` / `mask_url` 對應 blob
+  - 任一失敗只 log warning，不回滾 DB（DB 已 commit）
+- **SSE 推播 / Email**:無（純管理員自行清理，不通知客戶）
+- **來源**:`admin_production.md §1.10`
+
 ---
 
 ## 五、庫存與備料事件

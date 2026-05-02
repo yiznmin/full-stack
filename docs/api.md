@@ -480,6 +480,22 @@ Response 200: {
 }
 ```
 
+### DELETE /admin/production/jobs/{id}
+**權限**：admin｜硬刪除任務 + 連帶刪 `palette_color_mappings` + Firebase 物件（svg / filled / snapped_rgb / mask）。
+
+```
+Response 204: (no content)
+Response 400: {"detail":"任務正在處理中，無法刪除..."}        # status=processing
+Response 400: {"detail":"任務被以下資料引用，無法刪除：商品 variant（1 筆）"}  # 被 product_variants / print_batches / order_items 引用
+Response 404: {"detail":"製作任務不存在"}
+```
+
+業務規則：
+- `status=processing` 拒絕（worker 寫入中）
+- 被 `product_variants` / `print_batches` / `order_items` 任一引用拒絕（防斷鏈）
+- `palette_color_mappings` 連帶刪（FK NOT NULL，schema 無 ondelete CASCADE）
+- Firebase 4 個 blob best-effort 刪：失敗只 log 不回滾（DB 已 commit）
+
 ### GET /admin/production/jobs/{id}/signed-url
 **權限**：admin｜取得私有檔案簽名 URL（15分鐘 TTL）
 
