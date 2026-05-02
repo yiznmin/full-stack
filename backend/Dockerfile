@@ -16,6 +16,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     inkscape \
     curl \
+    git \
     libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
     libgl1 libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
@@ -39,8 +40,15 @@ ENV PYTHONUNBUFFERED=1 \
     SAM_MODEL_PATH=/app/models/sam_vit_b.pth \
     INKSCAPE_PATH=/usr/bin/inkscape
 
-# ── 複製 paint-by-number 引擎（engine.py 透過 sys.path 載入）────────────────
-COPY paint-by-number/src /app/paint-by-number/src
+# ── 取 paint-by-number 引擎 source（engine.py 透過 sys.path 載入）─────────
+# 不依賴 git submodule fetch（Railway clone 不一定 --recursive），改在 build 階段
+# 直接 git clone 釘住的 commit；只取 src/ 子目錄，丟棄 images / models / output 等大資產。
+ARG PBN_COMMIT=3e66ecebda1d6a5e6f4bf87e94adb237a19d55bf
+RUN git clone https://github.com/yiznmin/PaintingNumber.git /tmp/pbn \
+ && cd /tmp/pbn && git checkout ${PBN_COMMIT} \
+ && mkdir -p /app/paint-by-number \
+ && cp -r /tmp/pbn/src /app/paint-by-number/src \
+ && rm -rf /tmp/pbn
 
 # ── 複製 backend 程式碼（最後一層、變更最頻繁，cache 命中率最低）───────────
 COPY backend /app
