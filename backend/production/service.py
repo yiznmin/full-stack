@@ -581,7 +581,8 @@ def _run_sam_predict(image_url: str, sam_points: list[dict]):
         raise ValueError(f"無法解碼下載的圖片：{image_url}")
 
     predictor = get_sam_predictor()
-    return predict_mask(predictor, img_bgr, sam_points)
+    # image_url 當 cache key — 同一張圖連續推論時跳過 set_image（10-30s → < 0.5s）
+    return predict_mask(predictor, img_bgr, sam_points, image_key=image_url)
 
 
 # ── PDF export ─────────────────────────────────────────────────────────────────

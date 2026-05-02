@@ -26,6 +26,14 @@ if TYPE_CHECKING:
 _PREDICTOR: Any = None
 _LOAD_LOCK = threading.Lock()
 
+# image embedding cache：set_image() 是 SAM 推論中最慢的部分（CPU vit_b 10-30s），
+# 但 predict() 在 cache 存在時只需 < 0.5s。同一張圖被連續點選時不該重做 set_image。
+# 用 image_key（caller 傳入，通常是 image_url 或 image_id）識別目前已 cache 的圖。
+# 對應問題：用戶從 paint-by-number/src/sam_select.py 經驗中認知「點一下立刻看到 mask」
+# — 因為本機版只跑一次 set_image。Web 版要呈現同樣即時感必須跳過 redundant set_image。
+_LAST_IMAGE_KEY: str | None = None
+_PREDICT_LOCK = threading.Lock()  # 序列化 set_image / predict（SamPredictor 非 thread-safe）
+
 
 def get_sam_predictor() -> Any:
     """懶載入 SAM predictor 單例。
@@ -96,37 +104,53 @@ def predict_mask(
     predictor: Any,
     image_bgr: np.ndarray,
     sam_points: list[dict],
+    *,
+    image_key: str | None = None,
 ) -> np.ndarray:
     """同步呼叫 SAM 推論 → 回傳 bool 遮罩（True = 選取區）。
 
     sam_points 格式：[{x: float, y: float, label: int (1=foreground/0=background)}]
 
+    image_key 用來判斷是否要重做 set_image（SAM 推論瓶頸）：
+    - 提供且與上次相同 → 跳過 set_image，predict 直接用 cached embedding（< 0.5s）
+    - 為 None 或與上次不同 → 重新 set_image（10-30s）+ predict
+    - caller 應傳穩定的字串（image_url / image_id），同 admin session 連點 SAM
+      只在第一次慢，後續即時。
+
     raise:
       ValueError — sam_points 為空（caller 應先驗證）
     """
+    global _LAST_IMAGE_KEY
     import cv2  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
 
     if not sam_points:
         raise ValueError("sam_points 不能為空")
 
-    # SamPredictor.set_image 接受 RGB
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    predictor.set_image(image_rgb)
-
     points = np.array([[float(p["x"]), float(p["y"])] for p in sam_points], dtype=np.float32)
     labels = np.array([int(p["label"]) for p in sam_points], dtype=np.int32)
 
-    masks, scores, _ = predictor.predict(
-        point_coords=points,
-        point_labels=labels,
-        multimask_output=True,
-    )
+    # SamPredictor 內部 state（features tensor 等）非 thread-safe；序列化 set_image+predict
+    with _PREDICT_LOCK:
+        if image_key is None or image_key != _LAST_IMAGE_KEY:
+            # 沒 key 或 key 不同 → 重新 embedding
+            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            predictor.set_image(image_rgb)
+            _LAST_IMAGE_KEY = image_key
+            logger.info("SAM set_image done for key=%s", image_key)
+        # else: predictor 已快取此圖 embedding，直接 predict
+
+        masks, scores, _ = predictor.predict(
+            point_coords=points,
+            point_labels=labels,
+            multimask_output=True,
+        )
     # 多 mask 取分數最高那一張（mirror paint-by-number/src/sam_select.py:predict_mask_sam）
     return masks[int(np.argmax(scores))]
 
 
 def reset_predictor_for_test() -> None:
-    """測試專用：清掉單例（讓下個測試重新走載入路徑）。"""
-    global _PREDICTOR
+    """測試專用：清掉單例 + image cache（讓下個測試重新走載入路徑）。"""
+    global _PREDICTOR, _LAST_IMAGE_KEY
     _PREDICTOR = None
+    _LAST_IMAGE_KEY = None
