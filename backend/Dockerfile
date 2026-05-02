@@ -60,8 +60,13 @@ RUN curl -fL "https://codeload.github.com/yiznmin/PaintingNumber/tar.gz/3e66eceb
 COPY backend /app
 
 # 把 scripts 設可執行
-RUN chmod +x /app/scripts/start_web.sh /app/scripts/start_worker.sh
+RUN chmod +x /app/scripts/start.sh /app/scripts/start_web.sh /app/scripts/start_worker.sh
 
 # Railway 給 PORT env var；start_web.sh 讀
 EXPOSE 8000
-CMD ["bash", "scripts/start_web.sh"]
+
+# 容器入口統一走 start.sh dispatcher，依 SERVICE_TYPE env var 分流：
+#   SERVICE_TYPE=web    (預設) → start_web.sh
+#   SERVICE_TYPE=worker        → start_worker.sh
+# 各 Railway service 在 Variables 設自己的 SERVICE_TYPE。
+CMD ["bash", "scripts/start.sh"]
