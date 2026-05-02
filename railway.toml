@@ -21,11 +21,11 @@ rootDirectory = "."
 #   - backend-web    → bash scripts/start_web.sh
 #   - backend-worker → bash scripts/start_worker.sh
 
-# Railway 健康檢查：backend main.py 有 GET /health endpoint
-healthcheckPath = "/health"
-# alembic upgrade 在 start_web.sh 內跑，首次部署或大 migration 可能拖較久；
-# timeout 拉長至 300s（5 分鐘）給足 migration + uvicorn 啟動時間
-healthcheckTimeout = 300
+# 健康檢查 **不寫**在這裡，避免套到 worker（worker 沒 HTTP，會誤判 fail）。
+# paint-web 在 Railway dashboard 個別設定：
+#   Settings → Deploy → Healthcheck Path = /health
+#   Settings → Deploy → Healthcheck Timeout = 300
+# paint-worker 不需要 healthcheck（Celery 不開 HTTP port）。
 
 # 部署失敗時的重啟策略
 restartPolicyType = "on_failure"
