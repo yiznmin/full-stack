@@ -1,12 +1,13 @@
-# Railway 配置 — paint-web service（master 分支）
+# Railway 配置 — paint-worker service（deploy/worker 分支）
 #
-# paint-web Railway service 連 master 分支：
-#   Settings → Source → Branch = master
-#
-# paint-worker Railway service 連 deploy/worker 分支（railway.toml 不同：startCommand = start_worker.sh）：
+# paint-worker Railway service 連這個分支：
 #   Settings → Source → Branch = deploy/worker
 #
-# 兩分支只差 railway.toml 的 startCommand 一行，code 透過定期 git merge 同步。
+# paint-web Railway service 連 master 分支（railway.toml startCommand = start_web.sh）。
+#
+# 維護：master 有 code 變更 → 在本地 `git checkout deploy/worker && git merge master`
+# → push deploy/worker → Railway 自動 redeploy paint-worker。
+# Conflict 只會在 railway.toml 的 startCommand 那一行（保留 deploy/worker 版本）。
 
 [build]
 builder = "dockerfile"
@@ -14,7 +15,10 @@ dockerfilePath = "backend/Dockerfile"
 rootDirectory = "."
 
 [deploy]
-startCommand = "bash scripts/start_web.sh"
+startCommand = "bash scripts/start_worker.sh"
+
+# Celery worker 沒 HTTP — start_worker.sh 內背景跑 healthcheck_server.py 開 port 給 Railway ping。
+# **不要**在這裡設 healthcheckPath（會直接套用 Railway 自身的 healthcheck，跟 worker 不相容）。
 
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
