@@ -31,6 +31,7 @@ import {
   type CreateJobsRequest,
   type Detail,
   type Difficulty,
+  type Mode,
 } from '../api'
 import { fetchPhotoSignedUrl, useCustomRequestsQuery } from '@/features/custom_requests/queries'
 
@@ -196,11 +197,31 @@ interface ComboRow {
   canvas_size: string  // 'WxH' 字串
   difficulty: Difficulty
   detail: Detail
+  mode: Mode
+  /** sam_refine 用：必須 > 0 */
+  extra_colors: number
+  /** sam_weighted 用：0.5-0.8 */
+  weight_ratio: number
 }
 
 const combos = ref<ComboRow[]>([
-  { canvas_size: '30x40', difficulty: 'intermediate', detail: 'standard' },
+  {
+    canvas_size: '30x40',
+    difficulty: 'intermediate',
+    detail: 'standard',
+    mode: 'standard',
+    extra_colors: 3,
+    weight_ratio: 0.65,
+  },
 ])
+
+const modeOptions: { value: Mode; label: string }[] = [
+  { value: 'standard', label: '標準' },
+  { value: 'sam_refine', label: 'SAM 細化（subject mask）' },
+  { value: 'sam_weighted', label: 'SAM 加權（subject vs bg）' },
+]
+
+const hasSamMode = computed(() => combos.value.some((c) => c.mode !== 'standard'))
 
 function addCombo() {
   if (combos.value.length >= 10) {
@@ -236,10 +257,28 @@ const detailOptions: { value: Detail; label: string }[] = [
 ]
 
 // ── 提交 ──────────────────────────────────────────────────────────────
+const comboValidationError = computed<string | null>(() => {
+  for (let i = 0; i < combos.value.length; i++) {
+    const c = combos.value[i]
+    if (c.mode === 'sam_refine') {
+      if (!c.extra_colors || c.extra_colors <= 0) {
+        return `組合 #${i + 1}（SAM 細化）的 extra_colors 必須 > 0`
+      }
+    }
+    if (c.mode === 'sam_weighted') {
+      if (c.weight_ratio < 0.5 || c.weight_ratio > 0.8) {
+        return `組合 #${i + 1}（SAM 加權）的 weight_ratio 必須在 0.5–0.8 之間`
+      }
+    }
+  }
+  return null
+})
+
 const canSubmit = computed(() => {
   if (combos.value.length === 0) return false
   if (source.value === 'image' && !uploadedImageId.value) return false
   if (source.value === 'custom_request' && !selectedCustomRequestId.value) return false
+  if (comboValidationError.value) return false
   return true
 })
 
@@ -252,13 +291,16 @@ async function submit() {
     custom_request_id: source.value === 'custom_request' ? selectedCustomRequestId.value : null,
     jobs: combos.value.map((c) => {
       const [w, h] = c.canvas_size.split('x').map(Number)
-      return {
+      const job: CreateJobsRequest['jobs'][number] = {
         detail: c.detail,
         difficulty: c.difficulty,
-        mode: 'standard' as const,
+        mode: c.mode,
         canvas_w_cm: w,
         canvas_h_cm: h,
       }
+      if (c.mode === 'sam_refine') job.extra_colors = c.extra_colors
+      if (c.mode === 'sam_weighted') job.weight_ratio = c.weight_ratio
+      return job
     }),
   }
 
@@ -468,25 +510,70 @@ async function submit() {
         <div
           v-for="(c, idx) in combos"
           :key="idx"
-          class="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 p-3 border border-line-hairline rounded-[var(--radius-xs)]"
+          class="border border-line-hairline rounded-[var(--radius-xs)]"
         >
-          <Select v-model="c.canvas_size" :options="canvasOptions" />
-          <Select v-model="c.difficulty" :options="difficultyOptions" />
-          <Select v-model="c.detail" :options="detailOptions" />
-          <button
-            type="button"
-            class="h-9 w-9 inline-flex items-center justify-center rounded-[var(--radius-xs)] text-ink-muted hover:bg-[var(--color-state-danger)]/[0.10] hover:text-state-danger transition-colors disabled:opacity-30"
-            :disabled="combos.length === 1"
-            aria-label="移除"
-            @click="removeCombo(idx)"
+          <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 p-3">
+            <Select v-model="c.canvas_size" :options="canvasOptions" />
+            <Select v-model="c.difficulty" :options="difficultyOptions" />
+            <Select v-model="c.detail" :options="detailOptions" />
+            <Select v-model="c.mode" :options="modeOptions" />
+            <button
+              type="button"
+              class="h-9 w-9 inline-flex items-center justify-center rounded-[var(--radius-xs)] text-ink-muted hover:bg-[var(--color-state-danger)]/[0.10] hover:text-state-danger transition-colors disabled:opacity-30"
+              :disabled="combos.length === 1"
+              aria-label="移除"
+              @click="removeCombo(idx)"
+            >
+              <Trash2 :size="14" :stroke-width="1.5" />
+            </button>
+          </div>
+          <!-- SAM mode 額外欄位 -->
+          <div
+            v-if="c.mode === 'sam_refine'"
+            class="px-3 pb-3 grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 items-center"
           >
-            <Trash2 :size="14" :stroke-width="1.5" />
-          </button>
+            <label class="text-[12px] text-ink-muted">extra_colors（SAM 區域額外色數）</label>
+            <Input
+              v-model.number="c.extra_colors"
+              type="number"
+              min="1"
+              max="20"
+              placeholder="例如 3"
+            />
+          </div>
+          <div
+            v-else-if="c.mode === 'sam_weighted'"
+            class="px-3 pb-3 grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2 items-center"
+          >
+            <label class="text-[12px] text-ink-muted">weight_ratio（subject 權重，0.5–0.8）</label>
+            <Input
+              v-model.number="c.weight_ratio"
+              type="number"
+              min="0.5"
+              max="0.8"
+              step="0.05"
+              placeholder="例如 0.65"
+            />
+          </div>
         </div>
       </div>
 
       <p class="mt-3 text-[12px] text-ink-muted">
         多組會共用同一個 batch_id，依序進入 Celery 佇列處理（不並發）。任一組失敗 → 後續未跑的組會自動取消。
+      </p>
+      <p
+        v-if="hasSamMode"
+        class="mt-2 text-[12px] text-ink-muted bg-[var(--color-accent)]/[0.04] border border-accent/20 px-3 py-2 rounded-[var(--radius-xs)]"
+      >
+        <Sparkles :size="12" :stroke-width="1.5" class="inline mr-1 text-accent" />
+        SAM 模式（sam_refine / sam_weighted）建立後，需到任務詳細頁設定 mask（前景/背景點），
+        再啟動批次。Mask 編輯介面待 Phase C.2 實作 — 目前僅支援透過 API 設定。
+      </p>
+      <p
+        v-if="comboValidationError"
+        class="mt-2 text-[12px] text-state-danger"
+      >
+        ⚠️ {{ comboValidationError }}
       </p>
     </Card>
 

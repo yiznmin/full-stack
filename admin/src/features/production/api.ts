@@ -106,6 +106,10 @@ export interface CreateJobsRequest {
     canvas_h_cm: number
     min_brush_diam_cm?: number
     num_colors?: number | null
+    /** sam_refine 必填：>0；其餘 mode 忽略 */
+    extra_colors?: number | null
+    /** sam_weighted 必填：0.5-0.8；其餘 mode 忽略 */
+    weight_ratio?: number | null
   }[]
 }
 
