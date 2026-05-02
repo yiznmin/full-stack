@@ -1,9 +1,21 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     database_url: str
     test_database_url: str = ""
+
+    @field_validator("database_url", "test_database_url")
+    @classmethod
+    def _normalize_async_driver(cls, v: str) -> str:
+        """Railway PostgreSQL plugin 注入 `postgresql://...`，但 backend 用 SQLAlchemy
+        async + asyncpg driver — URL scheme 必須是 `postgresql+asyncpg://...`。
+        本地 .env 已寫對；雲端 reference 自動補 +asyncpg。
+        """
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
