@@ -35,6 +35,11 @@ _LAST_IMAGE_KEY: str | None = None
 _PREDICT_LOCK = threading.Lock()  # 序列化 set_image / predict（SamPredictor 非 thread-safe）
 
 
+def is_image_cached(image_key: str) -> bool:
+    """判斷此 image_key 是否已 set_image 過（caller 可省略下載 + 解碼）。"""
+    return image_key is not None and image_key == _LAST_IMAGE_KEY
+
+
 def get_sam_predictor() -> Any:
     """懶載入 SAM predictor 單例。
 
@@ -102,7 +107,7 @@ def get_sam_predictor() -> Any:
 
 def predict_mask(
     predictor: Any,
-    image_bgr: np.ndarray,
+    image_bgr: "np.ndarray | None",
     sam_points: list[dict],
     *,
     image_key: str | None = None,
@@ -117,8 +122,12 @@ def predict_mask(
     - caller 應傳穩定的字串（image_url / image_id），同 admin session 連點 SAM
       只在第一次慢，後續即時。
 
+    image_bgr 可為 None — 但僅當 image_key 與既有快取一致時（caller 已用
+    is_image_cached(key) 確認過、可省去下載+解碼）。否則 cache miss 必須提供。
+
     raise:
       ValueError — sam_points 為空（caller 應先驗證）
+                 — cache miss 但 image_bgr=None（資料不足無法 set_image）
     """
     global _LAST_IMAGE_KEY
     import cv2  # noqa: PLC0415
@@ -134,11 +143,15 @@ def predict_mask(
     with _PREDICT_LOCK:
         if image_key is None or image_key != _LAST_IMAGE_KEY:
             # 沒 key 或 key 不同 → 重新 embedding
+            if image_bgr is None:
+                raise ValueError(
+                    "cache miss（image_key 不一致）但未提供 image_bgr，無法 set_image"
+                )
             image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
             predictor.set_image(image_rgb)
             _LAST_IMAGE_KEY = image_key
             logger.info("SAM set_image done for key=%s", image_key)
-        # else: predictor 已快取此圖 embedding，直接 predict
+        # else: predictor 已快取此圖 embedding，直接 predict（不讀 image_bgr）
 
         masks, scores, _ = predictor.predict(
             point_coords=points,

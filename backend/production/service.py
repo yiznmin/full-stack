@@ -562,11 +562,26 @@ def _run_sam_predict(image_url: str, sam_points: list[dict]):
 
     image_url 可能是 gs:// 或 https://（既有圖片儲存格式）。
     走 in-memory bytes（避免 Windows 上 tempfile race + 累積 %TEMP% 殘檔）。
+
+    優化：sam_runtime 已 cache 此圖 embedding（is_image_cached）→ 跳過下載+解碼，
+    直接用 cached embedding 走 predict（同 admin 連點 SAM 第二次起每次省 1-2 秒）。
     """
+    from production.sam_runtime import (  # noqa: PLC0415
+        get_sam_predictor,
+        is_image_cached,
+        predict_mask,
+    )
+
+    predictor = get_sam_predictor()
+
+    if is_image_cached(image_url):
+        # cache hit：predictor 已 set_image 過此圖，predict 不需要原圖
+        return predict_mask(predictor, None, sam_points, image_key=image_url)
+
+    # cache miss：下載 + 解碼 + set_image
     import cv2  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
 
-    from production.sam_runtime import get_sam_predictor, predict_mask  # noqa: PLC0415
     from production.tasks import _parse_blob_path  # noqa: PLC0415
 
     bucket = get_bucket()
@@ -580,8 +595,6 @@ def _run_sam_predict(image_url: str, sam_points: list[dict]):
     if img_bgr is None:
         raise ValueError(f"無法解碼下載的圖片：{image_url}")
 
-    predictor = get_sam_predictor()
-    # image_url 當 cache key — 同一張圖連續推論時跳過 set_image（10-30s → < 0.5s）
     return predict_mask(predictor, img_bgr, sam_points, image_key=image_url)
 
 
