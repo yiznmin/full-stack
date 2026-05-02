@@ -346,6 +346,22 @@ cd /app && alembic upgrade head
 | **17.2** | Railway 部署 backend（`*.up.railway.app`）+ Postgres/Redis plugin + alembic + 驗收前 5 項 | ❌ |
 | **17.3** | Vercel 部署 admin（`*.vercel.app`）+ 驗收後 3 項（含 SAM e2e） | ❌ |
 | **17.4**（domain 買到再做） | Cloudflare DNS + 綁 admin/api 自訂 domain + Resend verify | ✅ |
+| **17.5**（schema 穩定後做）| 補完所有缺的 alembic migration（含 `images` / `production_jobs` / `palette_color_mappings` / `physical_colors` / 其他用 create_all 建的 ORM table）+ 改回 `alembic upgrade head` 部署流程 | ❌ |
+
+### Phase 17.5 — 補完 alembic（未來工作，已釘 TODO）
+
+**問題本質**：alembic migrations 自始至終缺一些 ORM-defined table 的 `op.create_table`。本地 dev / test 靠 `Base.metadata.create_all` 建 schema，alembic 從未驗證過 from-scratch deployment。
+
+**目前繞道**：`backend/scripts/init_db.py` 用 `create_all` + `alembic stamp head` 一次建好 schema + 記錄版本。
+
+**未來工作**：
+1. 盤點所有缺的 ORM table（cross-module FK 依賴）
+2. 寫對應 `op.create_table` migration、重排 down_revision 鏈
+3. 處理 cross-module FK 後加（如既有 `fk_production_jobs_custom_request` 模式）
+4. 加 CI test：`alembic downgrade base && alembic upgrade head` 在乾淨 DB 跑得通
+5. 改 `start_web.sh` 從 `python scripts/init_db.py` 回到 `alembic upgrade head`
+
+**觸發時機**：schema 設計穩定（無頻繁新欄位）時做，避免修補一半又被新 ORM 改動 outdate。
 
 ---
 

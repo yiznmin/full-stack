@@ -306,7 +306,13 @@ def _make_signed_url(raw_url: str) -> str:
     parts = raw_url.split(f"/{bucket.name}/", 1)
     if len(parts) != 2:
         raise BadRequestError(f"無法解析 Firebase 路徑：{raw_url}")
-    blob_path = parts[1]
+    # raw_url 可能是：
+    #   gs://bucket/path/to/file.jpg                                  → blob_path 含路徑
+    #   https://storage.googleapis.com/bucket/path/to/file.jpg        → 同上
+    #   https://storage.googleapis.com/bucket/path/to/file.jpg?X-... → 已是 signed URL（過期會重簽）
+    # 後者要剝掉 query string 才是純 blob path，否則 blob.generate_signed_url 會把整個 ? 編成 %3F
+    # 變雙重 query 的壞 URL（已遇過 bug）。
+    blob_path = parts[1].split("?", 1)[0]
     now = datetime.now(UTC)
 
     cached = _SIGNED_URL_CACHE.get(blob_path)

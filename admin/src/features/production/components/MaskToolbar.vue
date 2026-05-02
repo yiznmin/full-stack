@@ -47,12 +47,12 @@ const emit = defineEmits<{
 
     <div class="h-6 w-px bg-line-hairline" />
 
-    <Button variant="ghost" :disabled="isLocked || !canUndo" @click="emit('undo')">
+    <Button variant="tertiary" :disabled="isLocked || !canUndo" @click="emit('undo')">
       <Undo2 :size="14" :stroke-width="1.5" />
       撤銷
     </Button>
 
-    <Button variant="ghost" :disabled="isLocked" @click="emit('clear')">
+    <Button variant="tertiary" :disabled="isLocked" @click="emit('clear')">
       <Trash2 :size="14" :stroke-width="1.5" />
       清除
     </Button>

@@ -574,8 +574,7 @@ async function submit() {
         class="mt-2 text-[12px] text-ink-muted bg-[var(--color-accent)]/[0.04] border border-accent/20 px-3 py-2 rounded-[var(--radius-xs)]"
       >
         <Sparkles :size="12" :stroke-width="1.5" class="inline mr-1 text-accent" />
-        SAM 模式（sam_refine / sam_weighted）建立後，需到任務詳細頁設定 mask（前景/背景點），
-        再啟動批次。Mask 編輯介面待 Phase C.2 實作 — 目前僅支援透過 API 設定。
+        SAM 模式：送出後會跳到「編輯遮罩」頁，在圖上標出主體（左鍵前景／右鍵背景），標完點「儲存並啟動批次」即進 Celery 處理。
       </p>
       <p
         v-if="comboValidationError"
