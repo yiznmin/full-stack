@@ -114,10 +114,12 @@
 | name | VARCHAR | NOT NULL | 系列名稱 |
 | description | TEXT | nullable | 系列描述 |
 | theme_id | UUID | nullable, FK → themes.id ON DELETE SET NULL | 所屬主題 |
+| is_featured | BOOLEAN | NOT NULL, DEFAULT false | 是否為精選系列（store 端「精選系列」nav 用）|
 | created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 建立時間 |
 
 > 系列下仍有商品時禁止刪除，需先將所有商品移出系列。
 > theme_id 為 nullable：未歸屬主題的系列允許存在。
+> is_featured 由 admin 後台勾選；store 端 GET /series?featured=true 過濾精選系列。
 
 ---
 

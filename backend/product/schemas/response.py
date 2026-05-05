@@ -33,6 +33,7 @@ class SeriesResponse(BaseModel):
     description: str | None
     theme_id: UUID | None
     theme_name: str | None
+    is_featured: bool
     product_count: int
     created_at: datetime
 
@@ -291,6 +292,7 @@ class PublicSeriesBriefWithCount(BaseModel):
     description: str | None
     theme_id: UUID | None
     theme_name: str | None
+    is_featured: bool
     product_count: int
 
     model_config = {"from_attributes": True}
@@ -306,4 +308,5 @@ class PublicSeriesDetailResponse(BaseModel):
     description: str | None
     theme_id: UUID | None
     theme_name: str | None
+    is_featured: bool
     products: list[PublicProductBrief]   # 依 series_order ASC 排

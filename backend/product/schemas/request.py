@@ -23,12 +23,14 @@ class SeriesCreateRequest(BaseModel):
     name: str
     description: str | None = None
     theme_id: UUID | None = None
+    is_featured: bool = False
 
 
 class SeriesUpdateRequest(BaseModel):
     name: str
     description: str | None = None
     theme_id: UUID | None = None
+    is_featured: bool = False
 
 
 class TagCreateRequest(BaseModel):

@@ -218,13 +218,19 @@ async def create_series(
     name: str,
     description: str | None,
     theme_id: UUID | None = None,
+    is_featured: bool = False,
 ) -> dict:
     existing = await db.execute(select(ProductSeries).where(ProductSeries.name == name))
     if existing.scalar_one_or_none():
         raise ConflictError("系列名稱已存在")
     if theme_id is not None:
         await _get_theme_or_404(db, theme_id)
-    series = ProductSeries(name=name, description=description, theme_id=theme_id)
+    series = ProductSeries(
+        name=name,
+        description=description,
+        theme_id=theme_id,
+        is_featured=is_featured,
+    )
     db.add(series)
     await db.commit()
     await db.refresh(series)
@@ -241,6 +247,7 @@ async def update_series(
     name: str,
     description: str | None,
     theme_id: UUID | None = None,
+    is_featured: bool = False,
 ) -> dict:
     series = await _get_series_or_404(db, series_id)
     dup = await db.execute(
@@ -253,6 +260,7 @@ async def update_series(
     series.name = name
     series.description = description
     series.theme_id = theme_id
+    series.is_featured = is_featured
     await db.commit()
     await db.refresh(series)
     count_result = await db.execute(
@@ -1197,11 +1205,17 @@ async def public_get_theme(db: AsyncSession, theme_id: UUID) -> dict:
     }
 
 
-async def public_list_series(db: AsyncSession, theme_id: UUID | None = None) -> dict:
-    """所有系列。可帶 theme_id 過濾。每個含 theme_name + product_count。"""
+async def public_list_series(
+    db: AsyncSession,
+    theme_id: UUID | None = None,
+    featured: bool | None = None,
+) -> dict:
+    """所有系列；可帶 theme_id / featured 過濾。每筆含 theme_name + product_count + is_featured。"""
     query = select(ProductSeries)
     if theme_id is not None:
         query = query.where(ProductSeries.theme_id == theme_id)
+    if featured is not None:
+        query = query.where(ProductSeries.is_featured == featured)
 
     series_rows = (await db.execute(
         query.order_by(ProductSeries.created_at.desc())
@@ -1237,6 +1251,7 @@ async def public_list_series(db: AsyncSession, theme_id: UUID | None = None) -> 
             "description": s.description,
             "theme_id": s.theme_id,
             "theme_name": theme_map.get(s.theme_id) if s.theme_id else None,
+            "is_featured": s.is_featured,
             "product_count": count_map.get(s.id, 0),
         }
         for s in series_rows
@@ -1286,5 +1301,6 @@ async def public_get_series(db: AsyncSession, series_id: UUID) -> dict:
         "description": series_row.description,
         "theme_id": series_row.theme_id,
         "theme_name": theme_name,
+        "is_featured": series_row.is_featured,
         "products": items,
     }

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -57,6 +58,12 @@ class ProductSeries(Base):
         UUID(as_uuid=True),
         ForeignKey("themes.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    is_featured = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        default=False,
     )
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 

@@ -131,10 +131,11 @@ async def store_get_theme(theme_id: UUID, db: AsyncSession = Depends(get_db)):
 @router.get("/series", response_model=PublicSeriesListResponse, tags=["Store - Browse"])
 async def store_list_series(
     theme_id: UUID | None = Query(default=None),
+    featured: bool | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """所有系列。可帶 ?theme_id=... 過濾。每個含 theme_name + product_count。"""
-    return await service.public_list_series(db, theme_id=theme_id)
+    """?theme_id 過濾主題、?featured 過濾精選；每筆含 theme_name + product_count + is_featured。"""
+    return await service.public_list_series(db, theme_id=theme_id, featured=featured)
 
 
 @router.get(
@@ -218,7 +219,9 @@ async def create_series(
     _: None = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.create_series(db, body.name, body.description, body.theme_id)
+    return await service.create_series(
+        db, body.name, body.description, body.theme_id, body.is_featured
+    )
 
 
 @router.put("/admin/series/{series_id}", response_model=SeriesResponse)
@@ -229,7 +232,7 @@ async def update_series(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.update_series(
-        db, series_id, body.name, body.description, body.theme_id
+        db, series_id, body.name, body.description, body.theme_id, body.is_featured
     )
 
 

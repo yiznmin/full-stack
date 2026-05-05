@@ -307,15 +307,18 @@ Response 404: 主題不存在
 ```
 
 ### GET /series
-**權限**：public｜所有系列（含 theme_name + product_count）
+**權限**：public｜所有系列（含 theme_name + product_count + is_featured）
 
-Query: `?theme_id=uuid` 過濾（可選）
+Query:
+- `?theme_id=uuid` 過濾主題（可選）
+- `?featured=true|false` 過濾精選系列（可選；不傳 = 全部）
 
 ```json
 Response 200: {
   "items": [{
     "id": "uuid", "name": "string", "description": "string|null",
     "theme_id": "uuid|null", "theme_name": "string|null",
+    "is_featured": false,
     "product_count": 5
   }]
 }
@@ -328,6 +331,7 @@ Response 200: {
 Response 200: {
   "id": "uuid", "name": "string", "description": "string|null",
   "theme_id": "uuid|null", "theme_name": "string|null",
+  "is_featured": false,
   "products": [{
     "id": "uuid", "title": "string", "cover_image_url": "string",
     "difficulty_range": ["beginner","advanced"],
@@ -445,13 +449,13 @@ Response 409: name UNIQUE 衝突
 
 Query: `?theme_id=uuid` filter（可選；不帶則列所有）
 
-Response 每筆系列含 `theme_id` 與 `theme_name`。
+Response 每筆系列含 `theme_id`、`theme_name`、`is_featured`。
 
 ### POST /admin/series
 **權限**：admin
 
 ```json
-Request:  { "name": "string", "description": "string|null", "theme_id": "uuid|null" }
+Request:  { "name": "string", "description": "string|null", "theme_id": "uuid|null", "is_featured": false }
 Response 404: theme_id 不存在
 ```
 
