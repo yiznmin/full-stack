@@ -3,30 +3,33 @@
 @import "tailwindcss";
 
 /* ── Yiimui Store Design Tokens (see store/docs/design_system.md §3.4) ────── */
+/* 2026-05 update: moodboard 沙米/焦糖/核桃/酒紅 — 比舊版 D5 更暖更深 */
 @theme {
-  /* Paper & ink */
-  --color-paper-canvas: #F5F1E8;
-  --color-paper-surface: #FAF7F0;
-  --color-paper-deep: #ECE3CE;
+  /* Paper & ink — 米沙底 */
+  --color-paper-canvas: #EDE4D3;
+  --color-paper-surface: #F4ECDA;
+  --color-paper-deep: #DBC8B0;
 
   --color-ink-strong: #2E2823;
-  --color-ink-default: #4D4338;
-  --color-ink-muted: #7A6F60;
+  --color-ink-default: #4A3A2A;
+  --color-ink-muted: #7A6A55;
   --color-ink-disabled: #A89E8E;
 
-  --color-line-subtle: #E5DCC3;
-  --color-line: #DCD0B6;
+  --color-line-subtle: #E0D2B8;
+  --color-line: #CCB897;
 
-  /* Accent — Walnut Light */
-  --color-accent: #7B5841;
-  --color-accent-deep: #5A3F2D;
-  --color-accent-soft: #B8956F;
-  --color-accent-tint: #E8DCC8;
+  /* Accent — Caramel + Walnut + Wine */
+  --color-accent: #A88161;
+  --color-accent-deep: #6A4A34;
+  --color-accent-soft: #C4A37D;
+  --color-accent-tint: #E5D5BC;
+  --color-accent-wine: #781D35;
+  --color-accent-wine-soft: #9B3850;
 
-  /* States */
+  /* States — 對齊新底色 */
   --color-state-success: #7A8C5A;
   --color-state-warning: #B89149;
-  --color-state-danger: #A04A3F;
+  --color-state-danger: #781D35;
   --color-state-info: #6B7889;
 
   /* Typography */

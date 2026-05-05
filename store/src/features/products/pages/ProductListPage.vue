@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Loader2, SlidersHorizontal, X } from 'lucide-vue-next'
+import { Loader2, SlidersHorizontal } from 'lucide-vue-next'
 import { useProductsQuery } from '../queries'
+import { useSeriesQuery } from '@/features/browse/queries'
 import type {
   Difficulty,
   SortMode,
@@ -13,6 +14,7 @@ import ProductGrid from '../components/ProductGrid.vue'
 import ProductFilter from '../components/ProductFilter.vue'
 import ProductSort from '../components/ProductSort.vue'
 import Pagination from '../components/Pagination.vue'
+import SeriesProductGroup from '../components/SeriesProductGroup.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,19 +45,45 @@ function stringOrUndefined(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
 }
 
-// API params
-const queryParams = computed<ProductsListParams>(() => ({
+// 是否啟用「依系列分組」layout
+// 當沒有指定特定 series_id 時，全部商品改以系列為單位呈現（雜誌風）
+const isGroupedMode = computed(() => !filter.value.series_id)
+
+// 系列分組所需資料：listSeries(theme_id?) — theme 過濾自動帶入
+const seriesQuery = useSeriesQuery(() => filter.value.theme_id)
+const seriesList = computed(() => seriesQuery.data.value?.items ?? [])
+const groupedSeries = computed(() =>
+  seriesList.value.filter((s) => s.product_count > 0),
+)
+
+// 平鋪 mode 的 API params（series_id 模式才用）
+const flatParams = computed<ProductsListParams>(() => ({
   ...filter.value,
   sort: sort.value,
   page: page.value,
   page_size: 24,
 }))
-const productsQuery = useProductsQuery(queryParams)
+const flatQuery = useProductsQuery(flatParams)
 
-const items = computed(() => productsQuery.data.value?.items ?? [])
-const total = computed(() => productsQuery.data.value?.total ?? 0)
-const isEmpty = computed(
-  () => !productsQuery.isPending.value && items.value.length === 0,
+const flatItems = computed(() => flatQuery.data.value?.items ?? [])
+const flatTotal = computed(() => flatQuery.data.value?.total ?? 0)
+
+// 共用的 total / empty 狀態
+const total = computed(() =>
+  isGroupedMode.value
+    ? seriesList.value.reduce((sum, s) => sum + s.product_count, 0)
+    : flatTotal.value,
+)
+
+const isEmpty = computed(() => {
+  if (isGroupedMode.value) {
+    return !seriesQuery.isPending.value && groupedSeries.value.length === 0
+  }
+  return !flatQuery.isPending.value && flatItems.value.length === 0
+})
+
+const isPending = computed(() =>
+  isGroupedMode.value ? seriesQuery.isPending.value : flatQuery.isPending.value,
 )
 
 // Push helpers
@@ -170,7 +198,7 @@ const PREVIEW_PRODUCTS: ProductBrief[] = Array.from({ length: 8 }, (_, i) => ({
 
       <!-- Main grid area -->
       <div class="main">
-        <div v-if="productsQuery.isPending.value" class="loading">
+        <div v-if="isPending" class="loading">
           <Loader2 :size="20" />
         </div>
 
@@ -186,12 +214,27 @@ const PREVIEW_PRODUCTS: ProductBrief[] = Array.from({ length: 8 }, (_, i) => ({
           </div>
         </template>
 
+        <!-- 分組模式：每個系列一個 section（雜誌風） -->
+        <template v-else-if="isGroupedMode">
+          <SeriesProductGroup
+            v-for="s in groupedSeries"
+            :key="s.id"
+            :series="s"
+            :difficulty="filter.difficulty"
+            :canvas-size="filter.canvas_size"
+            :tag-id="filter.tag_id"
+            :sort="sort"
+            :limit="8"
+          />
+        </template>
+
+        <!-- 平鋪模式：選定特定 series_id 時 -->
         <template v-else>
-          <ProductGrid :products="items" />
+          <ProductGrid :products="flatItems" />
           <div class="page-footer">
             <Pagination
               :page="page"
-              :total="total"
+              :total="flatTotal"
               :page-size="24"
               @change="onPageChange"
             />

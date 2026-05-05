@@ -369,7 +369,7 @@ const restProducts = computed<ProductBrief[]>(() => {
   gap: 8px;
   align-self: flex-start;
   padding: 10px 20px;
-  background: rgba(245, 241, 232, 0.6);
+  background: rgba(237, 228, 211, 0.6);
   backdrop-filter: blur(4px);
   border: 1px solid var(--color-line-subtle);
   border-radius: var(--radius-xs);
@@ -441,9 +441,9 @@ const restProducts = computed<ProductBrief[]>(() => {
   gap: 12px;
   background: linear-gradient(
     135deg,
-    #ECE3CE 0%,
-    #B8956F 60%,
-    #7B5841 110%
+    var(--color-paper-deep) 0%,
+    var(--color-accent) 55%,
+    var(--color-accent-deep) 110%
   );
   border: 1px solid var(--color-line-subtle);
 }

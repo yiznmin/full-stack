@@ -8,10 +8,10 @@ const series = computed(() => featuredQuery.data.value?.items ?? [])
 
 // 4 種漸層，基於 index 循環使用，避免每張卡看起來都一樣
 const VISUAL_GRADIENTS = [
-  'linear-gradient(135deg, #E8DCC8 0%, #B8956F 55%, #7B5841 110%)',
-  'linear-gradient(135deg, #ECE3CE 0%, #A89E8E 55%, #5A3F2D 110%)',
-  'linear-gradient(135deg, #F5F1E8 0%, #C8A88A 55%, #8E6447 110%)',
-  'linear-gradient(135deg, #E5DCC3 0%, #B8956F 55%, #5C5751 110%)',
+  'linear-gradient(135deg, #DBC8B0 0%, #A88161 55%, #6A4A34 110%)',
+  'linear-gradient(135deg, #EDE4D3 0%, #9B3850 55%, #781D35 110%)',
+  'linear-gradient(135deg, #F4ECDA 0%, #C4A37D 55%, #A88161 110%)',
+  'linear-gradient(135deg, #E0D2B8 0%, #8E6044 55%, #6A4A34 110%)',
 ]
 
 function gradientFor(index: number) {

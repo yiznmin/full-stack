@@ -249,7 +249,7 @@ const theme = computed(() => themeQuery.data.value ?? null)
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #ECE3CE 0%, #B8956F 60%, #7B5841 110%);
+  background: linear-gradient(135deg, var(--color-paper-deep) 0%, var(--color-accent) 55%, var(--color-accent-deep) 110%);
 }
 .fallback-name {
   font-family: var(--font-cn-serif);

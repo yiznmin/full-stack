@@ -18,11 +18,11 @@ export function useThemesQuery() {
   })
 }
 
-/** Series — 全部系列；mega-menu / 主題詳情頁共用 */
-export function useSeriesQuery(themeId?: string) {
+/** Series — 全部系列；mega-menu / 主題詳情頁共用；接受 reactive themeId */
+export function useSeriesQuery(themeId?: MaybeRefOrGetter<string | undefined>) {
   return useQuery({
-    queryKey: ['public', 'series', themeId ?? null],
-    queryFn: () => listSeries(themeId),
+    queryKey: computed(() => ['public', 'series', toValue(themeId) ?? null] as const),
+    queryFn: () => listSeries(toValue(themeId)),
     staleTime: STALE_10MIN,
   })
 }
