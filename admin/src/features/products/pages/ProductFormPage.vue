@@ -222,6 +222,17 @@ function confirmWarning() {
           <Label for="p-status">狀態</Label>
           <Select id="p-status" v-model="status" :options="statusOptions" />
         </div>
+
+        <div>
+          <label class="flex items-center gap-2 cursor-pointer text-[13px] text-ink-default">
+            <input
+              type="checkbox"
+              v-model="isFeatured"
+              class="w-[16px] h-[16px] accent-[var(--color-accent)] cursor-pointer"
+            />
+            <span>設為精選商品（store 端「精選商品」入口、系列詳情 Pick 區塊會優先顯示）</span>
+          </label>
+        </div>
       </div>
     </Card>
 

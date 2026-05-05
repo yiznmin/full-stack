@@ -7,6 +7,7 @@ export const productSchema = z.object({
   series_id: z.string().uuid().nullable(),
   series_order: z.number().int().min(0),
   status: z.enum(['draft', 'on_sale', 'off_sale']),
+  is_featured: z.boolean(),
   tag_ids: z.array(z.string().uuid()),
 })
 export type ProductFormValues = z.infer<typeof productSchema>

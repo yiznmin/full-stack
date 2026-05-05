@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Package, Plus, Pencil, Trash2 } from 'lucide-vue-next'
+import { Package, Plus, Pencil, Trash2, Star } from 'lucide-vue-next'
 
 import PageHeader from '@/shared/components/PageHeader.vue'
 import AppSearchInput from '@/shared/components/AppSearchInput.vue'
@@ -11,6 +11,7 @@ import Button from '@/shared/ui/Button.vue'
 import Select from '@/shared/ui/Select.vue'
 
 import { useProductsQuery, useDeleteProductMutation } from '../queries'
+import { updateProduct, getProduct } from '../api'
 import type { ProductListItem, ProductStatus } from '../api'
 import ProductsTabs from '../components/ProductsTabs.vue'
 
@@ -62,11 +63,36 @@ const columns: Column<ProductListItem>[] = [
   { key: 'status', label: '狀態', width: '100px' },
   { key: 'variants', label: '變體', width: '70px', align: 'right' },
   { key: 'updated', label: '最後更新', width: '160px' },
-  { key: 'actions', label: '', width: '90px', align: 'right' },
+  { key: 'actions', label: '', width: '120px', align: 'right' },
 ]
 
 const del = useDeleteProductMutation()
 const deletingId = ref<string | null>(null)
+const togglingId = ref<string | null>(null)
+
+async function toggleFeatured(row: ProductListItem) {
+  togglingId.value = row.id
+  try {
+    // 拿完整 product detail（API 需要完整 payload，包含 description / tags 等）
+    const detail = await getProduct(row.id)
+    await updateProduct(row.id, {
+      title: detail.title,
+      description: detail.description ?? '',
+      cover_image_url: detail.cover_image_url,
+      series_id: detail.series_id,
+      series_order: detail.series_order ?? 0,
+      status: detail.status,
+      is_featured: !detail.is_featured,
+      tag_ids: detail.tags.map((t) => t.id),
+    })
+    // 重撈 list（不依賴 cache，避免 stale）
+    location.reload()
+  } catch (e) {
+    alert((e as { message?: string }).message || '切換失敗')
+  } finally {
+    togglingId.value = null
+  }
+}
 
 async function handleDelete(row: ProductListItem) {
   if (!confirm(`確定刪除「${row.title}」？`)) return
@@ -155,7 +181,16 @@ function formatDate(iso: string): string {
     </template>
 
     <template #cell-title="{ row }">
-      <span class="font-medium text-ink-strong">{{ row.title }}</span>
+      <div class="flex items-center gap-2">
+        <span class="font-medium text-ink-strong">{{ row.title }}</span>
+        <span
+          v-if="row.is_featured"
+          class="text-[11px] px-1.5 h-[18px] inline-flex items-center gap-0.5 rounded-[var(--radius-xs)] bg-[var(--color-state-warning)]/[0.12] text-state-warning"
+          title="精選商品"
+        >
+          <Star :size="10" :stroke-width="1.75" fill="currentColor" />精選
+        </span>
+      </div>
     </template>
 
     <template #cell-series="{ row }">
@@ -183,6 +218,18 @@ function formatDate(iso: string): string {
 
     <template #cell-actions="{ row }">
       <div class="flex items-center justify-end gap-1" @click.stop>
+        <button
+          type="button"
+          class="h-8 w-8 flex items-center justify-center rounded-[var(--radius-xs)] transition-colors disabled:opacity-50"
+          :class="row.is_featured
+            ? 'text-state-warning hover:bg-[var(--color-state-warning)]/[0.10]'
+            : 'text-ink-muted hover:bg-paper-subtle hover:text-state-warning'"
+          :title="row.is_featured ? '取消精選' : '設為精選'"
+          :disabled="togglingId === row.id"
+          @click="toggleFeatured(row)"
+        >
+          <Star :size="14" :stroke-width="1.5" :fill="row.is_featured ? 'currentColor' : 'none'" />
+        </button>
         <button
           type="button"
           class="h-8 w-8 flex items-center justify-center rounded-[var(--radius-xs)] text-ink-muted hover:bg-paper-subtle hover:text-ink-strong transition-colors"

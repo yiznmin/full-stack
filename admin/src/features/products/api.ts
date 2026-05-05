@@ -46,6 +46,7 @@ export interface ProductListItem {
   series_id: string | null
   series_name: string | null
   variant_count: number
+  is_featured: boolean
   updated_at: string
 }
 
@@ -71,6 +72,7 @@ export interface ProductDetail {
   series_id: string | null
   series_order: number | null
   status: ProductStatus
+  is_featured: boolean
   tags: { id: string; name: string }[]
   created_at: string
   updated_at: string
@@ -83,6 +85,7 @@ export interface ProductPayload {
   series_id: string | null
   series_order: number
   status: ProductStatus
+  is_featured: boolean
   tag_ids: string[]
 }
 
