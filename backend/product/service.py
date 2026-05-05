@@ -853,6 +853,7 @@ async def _public_product_brief(db: AsyncSession, product: Product) -> dict:
         "price_min": float(min(prices)),
         "price_max": float(max(prices)),
         "is_preorder": False,
+        "is_featured": product.is_featured,
     }
 
 
@@ -867,6 +868,7 @@ async def public_list_products(
     page: int,
     page_size: int,
     theme_id: UUID | None = None,
+    featured: bool | None = None,
 ) -> dict:
     query = select(Product).where(Product.status == ProductStatusEnum.on_sale)
 
@@ -877,6 +879,10 @@ async def public_list_products(
             select(ProductSeries.id).where(ProductSeries.theme_id == theme_id)
         )
         query = query.where(Product.series_id.in_(theme_series_ids))
+
+    # featured 過濾
+    if featured is not None:
+        query = query.where(Product.is_featured == featured)
 
     # Always require at least one active variant — exclude "zombie" products
     active_variant_pids = (
@@ -1054,6 +1060,7 @@ async def public_get_product(db: AsyncSession, product_id: UUID) -> dict:
         "title": product.title,
         "description": product.description,
         "cover_image_url": product.cover_image_url,
+        "is_featured": product.is_featured,
         "images": images,
         "series": series_payload,
         "tags": tags,

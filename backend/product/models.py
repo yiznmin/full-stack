@@ -82,6 +82,12 @@ class Product(Base):
         nullable=False,
         default=ProductStatusEnum.draft,
     )
+    is_featured = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        default=False,
+    )
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         TIMESTAMP(timezone=True),

@@ -60,6 +60,7 @@ async def store_list_products(
     tag_id: UUID | None = Query(default=None),
     series_id: UUID | None = Query(default=None),
     theme_id: UUID | None = Query(default=None),
+    featured: bool | None = Query(default=None),
     sort: Literal["latest", "popular", "price_asc", "price_desc"] = Query(default="latest"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=24, ge=1, le=100),
@@ -67,7 +68,7 @@ async def store_list_products(
 ):
     return await service.public_list_products(
         db, difficulty, detail, canvas_size, tag_id, series_id,
-        sort, page, page_size, theme_id=theme_id,
+        sort, page, page_size, theme_id=theme_id, featured=featured,
     )
 
 

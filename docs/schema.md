@@ -134,10 +134,12 @@
 | series_id | UUID | nullable, FK → product_series.id | 所屬系列 |
 | series_order | INTEGER | nullable | 系列內排序 |
 | status | ENUM('draft','on_sale','off_sale') | NOT NULL, DEFAULT 'draft' | 商品狀態；不支援硬刪除，下架以 off_sale 標記 |
+| is_featured | BOOLEAN | NOT NULL, DEFAULT false | 是否為精選商品（store 端「精選商品」入口、SeriesDetailPage 右側 Pick 區塊用）|
 | created_at | TIMESTAMP | NOT NULL, DEFAULT now() | 建立時間 |
 | updated_at | TIMESTAMP | NOT NULL, DEFAULT now() | 最後更新時間 |
 
 > **series_order 規則**：若 `series_id IS NOT NULL` 則 `series_order` 必填（後端驗證，資料庫層允許 nullable 以支援 series_id 為 null 的情境）。
+> **is_featured 規則**：admin 後台勾選；store 端 `GET /products?featured=true` 過濾精選商品。
 
 ---
 

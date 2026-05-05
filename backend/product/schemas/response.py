@@ -115,6 +115,7 @@ class ProductBriefResponse(BaseModel):
     series_id: UUID | None
     series_name: str | None
     variant_count: int
+    is_featured: bool
     tags: list[TagBriefResponse]
     created_at: datetime
     updated_at: datetime
@@ -137,6 +138,7 @@ class ProductDetailResponse(BaseModel):
     series_id: UUID | None
     series_order: int | None
     status: ProductStatusEnum
+    is_featured: bool
     tags: list[TagBriefResponse]
     images: list[ProductImageResponse]
     variants: list[VariantResponse]
@@ -201,6 +203,7 @@ class PublicProductBrief(BaseModel):
     price_min: float
     price_max: float
     is_preorder: bool
+    is_featured: bool
 
 
 class PublicProductListResponse(BaseModel):
@@ -234,6 +237,7 @@ class PublicProductDetailResponse(BaseModel):
     title: str
     description: str | None
     cover_image_url: str
+    is_featured: bool
     images: list[ProductImageResponse]
     series: PublicSeriesWithProducts | None
     tags: list[PublicTagBrief]

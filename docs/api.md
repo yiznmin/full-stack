@@ -223,9 +223,10 @@ Response 200: { "issued_count": 5 }
 ### GET /products
 **權限**：public
 
-Query: `?difficulty=beginner|elementary|intermediate|advanced&detail=rough|standard|detailed|premium&canvas_size=30x40&tag_id=uuid&series_id=uuid&theme_id=uuid&sort=latest|popular|price_asc|price_desc&page=1&page_size=24`
+Query: `?difficulty=beginner|elementary|intermediate|advanced&detail=rough|standard|detailed|premium&canvas_size=30x40&tag_id=uuid&series_id=uuid&theme_id=uuid&featured=true|false&sort=latest|popular|price_asc|price_desc&page=1&page_size=24`
 
 > `theme_id` 過濾撈該主題下所有 series 的商品（透過 series_id IN 子查詢）。
+> `featured=true` 過濾精選商品（admin 後台勾選）。
 
 ```json
 Response 200: {
@@ -233,7 +234,7 @@ Response 200: {
     "id": "uuid", "title": "string", "cover_image_url": "string",
     "difficulty_range": ["beginner","advanced"],
     "price_min": 397, "price_max": 860,
-    "is_preorder": false
+    "is_preorder": false, "is_featured": false
   }],
   "total": 100, "page": 1, "page_size": 24
 }
@@ -251,7 +252,7 @@ Query: `?q=關鍵字&page=1&page_size=24`
 ```json
 Response 200: {
   "id": "uuid", "title": "string", "description": "string",
-  "cover_image_url": "string",
+  "cover_image_url": "string", "is_featured": false,
   "images": [{ "image_url": "string", "sort_order": 0 }],
   "series": { "id": "uuid", "name": "string", "products": [...] },
   "tags": [{ "id": "uuid", "name": "string" }],
@@ -360,9 +361,11 @@ Request: {
   "title": "string", "description": "string", "cover_image_url": "string",
   "series_id": "uuid|null", "series_order": 0,
   "status": "draft|on_sale|off_sale",
+  "is_featured": false,
   "tag_ids": ["uuid"]
 }
 ```
+> `is_featured`：精選商品標記，store 端「精選商品」入口會撈這筆。
 
 ### PUT /admin/products/{id}
 **權限**：admin
