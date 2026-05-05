@@ -34,6 +34,7 @@ export interface SeriesListItem {
   description: string | null
   theme_id: string | null
   theme_name: string | null
+  is_featured: boolean
   product_count: number
 }
 
@@ -41,11 +42,16 @@ export interface SeriesListResponse {
   items: SeriesListItem[]
 }
 
-/** GET /series — 所有系列；可帶 ?theme_id=... 過濾 */
-export async function listSeries(themeId?: string): Promise<SeriesListResponse> {
-  const url = themeId
-    ? `${API_BASE}/series?theme_id=${encodeURIComponent(themeId)}`
-    : `${API_BASE}/series`
+/** GET /series — 所有系列；可帶 ?theme_id 過濾主題、?featured=true|false 過濾精選 */
+export async function listSeries(
+  themeId?: string,
+  featured?: boolean,
+): Promise<SeriesListResponse> {
+  const params = new URLSearchParams()
+  if (themeId) params.set('theme_id', themeId)
+  if (featured !== undefined) params.set('featured', String(featured))
+  const qs = params.toString()
+  const url = qs ? `${API_BASE}/series?${qs}` : `${API_BASE}/series`
   const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) throw new Error(`listSeries failed: ${res.status} ${res.statusText}`)
   return (await res.json()) as SeriesListResponse

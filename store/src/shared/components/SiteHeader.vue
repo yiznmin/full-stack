@@ -6,12 +6,20 @@ import SiteLogo from './SiteLogo.vue'
 import IconButton from './IconButton.vue'
 import MegaMenu from './MegaMenu.vue'
 import MobileMenu from './MobileMenu.vue'
-import { useThemesQuery, useSeriesQuery, useTagsQuery } from '@/features/browse/queries'
+import {
+  useThemesQuery,
+  useSeriesQuery,
+  useTagsQuery,
+  useFeaturedSeriesQuery,
+} from '@/features/browse/queries'
 
 const themesQuery = useThemesQuery()
 const seriesQuery = useSeriesQuery()
 const tagsQuery = useTagsQuery()
+const featuredSeriesQuery = useFeaturedSeriesQuery()
 const mobileOpen = ref(false)
+
+const FEATURED_SERIES_LIMIT = 5
 
 const DIFFICULTIES = [
   { code: 'beginner', label: '入門' },
@@ -90,6 +98,25 @@ const TAGS_LIMIT = 8
         </MegaMenu>
 
         <MegaMenu label="主題" to="/themes">
+          <!-- 精選系列（admin 勾選 is_featured 的系列）-->
+          <div
+            v-if="(featuredSeriesQuery.data.value?.items.length ?? 0) > 0"
+            class="mega-featured"
+          >
+            <h4 class="mega-heading">精選系列</h4>
+            <div class="featured-chips">
+              <RouterLink
+                v-for="s in featuredSeriesQuery.data.value?.items.slice(0, FEATURED_SERIES_LIMIT)"
+                :key="s.id"
+                :to="`/series/${s.id}`"
+                class="featured-chip"
+              >
+                {{ s.name }}
+              </RouterLink>
+            </div>
+          </div>
+
+          <!-- 所有主題 -->
           <div v-if="themesQuery.isPending.value" class="mega-empty">
             主題載入中⋯
           </div>
@@ -99,16 +126,22 @@ const TAGS_LIMIT = 8
           <div v-else-if="(themesQuery.data.value?.items.length ?? 0) === 0" class="mega-empty">
             主題建設中，敬請期待
           </div>
-          <div v-else class="mega-grid mega-themes">
-            <RouterLink
-              v-for="theme in themesQuery.data.value?.items"
-              :key="theme.id"
-              :to="`/themes/${theme.id}`"
-              class="mega-theme"
-            >
-              <span class="theme-name">{{ theme.name }}</span>
-              <span class="theme-meta">{{ theme.series_count }} 系列 · {{ theme.product_count }} 件作品</span>
-            </RouterLink>
+          <div v-else>
+            <h4
+              v-if="(featuredSeriesQuery.data.value?.items.length ?? 0) > 0"
+              class="mega-heading mega-heading-spaced"
+            >所有主題</h4>
+            <div class="mega-grid mega-themes">
+              <RouterLink
+                v-for="theme in themesQuery.data.value?.items"
+                :key="theme.id"
+                :to="`/themes/${theme.id}`"
+                class="mega-theme"
+              >
+                <span class="theme-name">{{ theme.name }}</span>
+                <span class="theme-meta">{{ theme.series_count }} 系列 · {{ theme.product_count }} 件作品</span>
+              </RouterLink>
+            </div>
           </div>
         </MegaMenu>
 
@@ -291,6 +324,43 @@ const TAGS_LIMIT = 8
   color: var(--color-ink-muted);
   letter-spacing: 0.04em;
   padding: 8px 4px;
+}
+
+.mega-featured {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-line-subtle);
+}
+
+.mega-heading-spaced {
+  margin-top: 0;
+}
+
+.featured-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.featured-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-cn-serif);
+  font-weight: 300;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-strong);
+  text-decoration: none;
+  padding: 6px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  transition: all 150ms;
+}
+
+.featured-chip:hover {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-paper-canvas);
 }
 
 /* Responsive */

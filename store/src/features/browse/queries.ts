@@ -21,6 +21,15 @@ export function useSeriesQuery(themeId?: string) {
   })
 }
 
+/** Featured Series — 精選系列（admin 後台勾選）；主題 mega-menu 上方區塊用 */
+export function useFeaturedSeriesQuery() {
+  return useQuery({
+    queryKey: ['public', 'series', 'featured'],
+    queryFn: () => listSeries(undefined, true),
+    staleTime: STALE_10MIN,
+  })
+}
+
 /** Tags — 標籤清單，mega-menu / 商品列表 filter 共用 */
 export function useTagsQuery() {
   return useQuery({
