@@ -26,6 +26,29 @@ export async function listThemes(): Promise<ThemeListResponse> {
   return (await res.json()) as ThemeListResponse
 }
 
+export interface ThemeSeriesItem {
+  id: string
+  name: string
+  description: string | null
+  product_count: number
+}
+
+export interface ThemeDetail {
+  id: string
+  name: string
+  description: string | null
+  cover_image_url: string | null
+  sort_order: number
+  series: ThemeSeriesItem[]
+}
+
+/** GET /themes/:id — 單主題詳情 + 該主題下所有系列 */
+export async function getTheme(id: string): Promise<ThemeDetail> {
+  const res = await fetch(`${API_BASE}/themes/${id}`, { credentials: 'include' })
+  if (!res.ok) throw new Error(`getTheme failed: ${res.status} ${res.statusText}`)
+  return (await res.json()) as ThemeDetail
+}
+
 // ── Series ───────────────────────────────────────────────────────────────────
 
 export interface SeriesListItem {
@@ -55,6 +78,33 @@ export async function listSeries(
   const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) throw new Error(`listSeries failed: ${res.status} ${res.statusText}`)
   return (await res.json()) as SeriesListResponse
+}
+
+export interface SeriesProductBrief {
+  id: string
+  title: string
+  cover_image_url: string
+  difficulty_range: [string, string] | null
+  price_min: number
+  price_max: number
+  is_preorder: boolean
+}
+
+export interface SeriesDetail {
+  id: string
+  name: string
+  description: string | null
+  theme_id: string | null
+  theme_name: string | null
+  is_featured: boolean
+  products: SeriesProductBrief[]
+}
+
+/** GET /series/:id — 單系列詳情 + 該系列下所有 on_sale 商品（依 series_order ASC） */
+export async function getSeries(id: string): Promise<SeriesDetail> {
+  const res = await fetch(`${API_BASE}/series/${id}`, { credentials: 'include' })
+  if (!res.ok) throw new Error(`getSeries failed: ${res.status} ${res.statusText}`)
+  return (await res.json()) as SeriesDetail
 }
 
 // ── Tags ─────────────────────────────────────────────────────────────────────

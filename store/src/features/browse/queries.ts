@@ -1,7 +1,13 @@
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
-import { listThemes, listSeries, listTags } from './api'
+import { listThemes, listSeries, listTags, getTheme, getSeries } from './api'
 
 const STALE_10MIN = 10 * 60 * 1000
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function isValidId(id: string): boolean {
+  return UUID_RE.test(id)
+}
 
 /** Themes — stale 10 分鐘（主題不常變） */
 export function useThemesQuery() {
@@ -36,5 +42,25 @@ export function useTagsQuery() {
     queryKey: ['public', 'tags'],
     queryFn: listTags,
     staleTime: STALE_10MIN,
+  })
+}
+
+/** Theme detail — 主題詳情頁 */
+export function useThemeDetailQuery(id: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: computed(() => ['public', 'theme', toValue(id)] as const),
+    queryFn: () => getTheme(toValue(id)),
+    staleTime: STALE_10MIN,
+    enabled: computed(() => isValidId(toValue(id))),
+  })
+}
+
+/** Series detail — 系列詳情頁 */
+export function useSeriesDetailQuery(id: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: computed(() => ['public', 'series', toValue(id)] as const),
+    queryFn: () => getSeries(toValue(id)),
+    staleTime: STALE_10MIN,
+    enabled: computed(() => isValidId(toValue(id))),
   })
 }

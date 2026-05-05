@@ -23,7 +23,7 @@ const FEATURED_SERIES_LIMIT = 5
 
 const DIFFICULTIES = [
   { code: 'beginner', label: '入門' },
-  { code: 'basic', label: '初級' },
+  { code: 'elementary', label: '初級' },
   { code: 'intermediate', label: '中級' },
   { code: 'advanced', label: '進階' },
 ]
@@ -139,7 +139,7 @@ const TAGS_LIMIT = 8
                 class="mega-theme"
               >
                 <span class="theme-name">{{ theme.name }}</span>
-                <span class="theme-meta">{{ theme.series_count }} 系列 · {{ theme.product_count }} 件作品</span>
+                <span class="theme-meta">{{ theme.series_count }} 系列 · {{ theme.product_count }} 件商品</span>
               </RouterLink>
             </div>
           </div>
