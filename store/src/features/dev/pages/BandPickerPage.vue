@@ -5,52 +5,48 @@
 const CANDIDATES = [
   {
     hex: '#F4EAD0',
-    name: 'Pale Sand',
-    desc: '比 canvas 微暖一階，幾乎察覺不到，最克制',
+    name: 'A · Pale Sand',
+    desc: '⚠️ user 反饋：太黃',
     cn: '淡米沙',
+    ref: 'too-yellow',
+  },
+  // ↓ 5 個 in-between 候選 — 比 A 冷、比 B 亮 ↓
+  {
+    hex: '#F2E8D5',
+    name: '①  Pearl Linen',
+    desc: '比 A 略冷一點，亮度差不多',
+    cn: '珍珠亞麻',
+  },
+  {
+    hex: '#F1E7D2',
+    name: '②  Soft Cream',
+    desc: '中間偏亮，黃度中和',
+    cn: '柔奶白',
+  },
+  {
+    hex: '#F0E6D0',
+    name: '③  Mid Linen',
+    desc: '正中間（亮度與黃度都取中）',
+    cn: '中亞麻',
+  },
+  {
+    hex: '#F1E5CD',
+    name: '④  Warm Cream',
+    desc: '比 ③ 略暖一點點，偏奶油',
+    cn: '暖奶白',
+  },
+  {
+    hex: '#EFE5CF',
+    name: '⑤  Pale Linen',
+    desc: '比 B 亮但 hue 一致，最接近 B 的同調',
+    cn: '淡亞麻',
   },
   {
     hex: '#EFE3CC',
-    name: 'Soft Linen',
-    desc: '輕微 linen 感，溫和分層',
+    name: 'B · Soft Linen',
+    desc: '⚠️ user 反饋：太暗',
     cn: '亞麻乳',
-  },
-  {
-    hex: '#EBDDC8',
-    name: 'Cream Peach（現在）',
-    desc: '當前使用 — 淡桃米',
-    cn: '奶油桃',
-    current: true,
-  },
-  {
-    hex: '#E8D5BC',
-    name: 'Wheat',
-    desc: '小麥色，溫暖但仍偏淺',
-    cn: '麥色',
-  },
-  {
-    hex: '#E0CDB0',
-    name: 'Oat Beige',
-    desc: '燕麥米，明確的「比 canvas 暗」',
-    cn: '燕麥米',
-  },
-  {
-    hex: '#D9C5A6',
-    name: 'Light Camel',
-    desc: '淺駝，比較有存在感（接近 line tone）',
-    cn: '淺駝',
-  },
-  {
-    hex: '#ECDED5',
-    name: 'Dusty Rose Cream',
-    desc: '帶點玫瑰粉的米，比較柔',
-    cn: '玫瑰米',
-  },
-  {
-    hex: '#E2DCC2',
-    name: 'Sage Cream',
-    desc: '帶點苔綠 hint 的米，呼應 fresh accent',
-    cn: '苔米',
+    ref: 'too-dark',
   },
 ]
 </script>
@@ -62,7 +58,8 @@ const CANDIDATES = [
       <h1 class="title">挑選 band 區塊顏色</h1>
       <p class="meta">
         canvas <code>#F4EFE2</code> · 目前 band <code>#EBDDC8</code><br />
-        以下 8 個候選都跟我們 v5 色票同色系，只是不同明度 / 暖度。
+        A 跟 B 是你之前嫌「太黃 / 太暗」的兩個（紅虛線標示）。<br />
+        中間 ① ~ ⑤ 都比 A 冷、比 B 亮，找你對胃口的。
       </p>
     </header>
 
@@ -71,7 +68,10 @@ const CANDIDATES = [
         v-for="c in CANDIDATES"
         :key="c.hex"
         class="band-sample"
-        :class="{ 'is-current': c.current }"
+        :class="{
+          'is-ref-yellow': c.ref === 'too-yellow',
+          'is-ref-dark': c.ref === 'too-dark',
+        }"
         :style="{ background: c.hex }"
       >
         <div class="content">
@@ -151,9 +151,11 @@ const CANDIDATES = [
 .band-sample:hover {
   border-color: var(--color-line);
 }
-.is-current {
-  outline: 2px solid var(--color-fresh);
+.is-ref-yellow,
+.is-ref-dark {
+  outline: 2px dashed var(--color-state-danger);
   outline-offset: -2px;
+  opacity: 0.85;
 }
 
 .content { max-width: 720px; }
