@@ -79,24 +79,20 @@ function toneFor(idx: number) {
 <style scoped>
 .band {
   position: relative;
-  background:
-    linear-gradient(135deg,
-      var(--color-accent-deep) 0%,
-      #4A3829 60%,
-      var(--color-accent-wine) 130%);
+  background: var(--color-paper-deep);
   padding: 120px 0 128px;
   overflow: hidden;
   margin: 96px 0;
 }
 
-/* 紙質 grain 疊在深底上 */
+/* 紙質 grain（淡底上的微紋路） */
 .band-grain {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.18;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.95 0 0 0 0 0.92 0 0 0 0 0.85 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
+  opacity: 0.25;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.32 0 0 0 0 0.22 0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
 }
 
 .inner {
@@ -118,13 +114,13 @@ function toneFor(idx: number) {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.22em;
-  color: var(--color-fresh-soft);
+  color: var(--color-fresh);
   font-weight: 500;
 }
 .head-dot {
   width: 4px; height: 4px;
   border-radius: 50%;
-  background: var(--color-accent-tint);
+  background: var(--color-accent);
 }
 .head-cap {
   font-family: var(--font-display);
@@ -132,12 +128,12 @@ function toneFor(idx: number) {
   font-weight: 300;
   font-size: 14px;
   letter-spacing: 0.04em;
-  color: var(--color-accent-tint);
+  color: var(--color-accent);
 }
 .head-line {
   flex: 1;
   height: 1px;
-  background: linear-gradient(to right, rgba(236,227,210,0.5), transparent 80%);
+  background: linear-gradient(to right, var(--color-accent-soft), transparent 80%);
 }
 
 .title {
@@ -146,15 +142,14 @@ function toneFor(idx: number) {
   font-size: clamp(48px, 6vw, 80px);
   line-height: 1.1;
   letter-spacing: 0.08em;
-  color: var(--color-paper-canvas);
+  color: var(--color-ink-strong);
   margin: 0;
-  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
 }
 .em {
   font-family: var(--font-display);
   font-style: italic;
   font-weight: 300;
-  color: var(--color-accent-tint);
+  color: var(--color-accent);
   margin: 0 0.04em;
 }
 .title-aux {
@@ -165,8 +160,7 @@ function toneFor(idx: number) {
   font-weight: 300;
   font-size: 16px;
   letter-spacing: 0.06em;
-  color: rgba(236, 227, 210, 0.62);
-  text-shadow: none;
+  color: var(--color-ink-muted);
 }
 
 .grid {
@@ -181,13 +175,13 @@ function toneFor(idx: number) {
   overflow: hidden;
   text-decoration: none;
   color: inherit;
-  border: 1px solid rgba(236, 227, 210, 0.12);
-  background: var(--color-accent-deep);
+  border: 1px solid var(--color-line-subtle);
+  background: var(--color-paper-surface);
   transition: transform 400ms ease, border-color 200ms;
 }
 .card:hover {
   transform: translateY(-4px);
-  border-color: rgba(236, 227, 210, 0.4);
+  border-color: var(--color-line);
 }
 
 .card-img,
@@ -250,7 +244,7 @@ function toneFor(idx: number) {
 .foot {
   margin-top: 56px;
   padding-top: 24px;
-  border-top: 1px solid rgba(236, 227, 210, 0.18);
+  border-top: 1px solid var(--color-accent-soft);
   text-align: right;
 }
 .more {
@@ -258,12 +252,12 @@ function toneFor(idx: number) {
   font-size: 11px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--color-paper-canvas);
+  color: var(--color-accent);
   text-decoration: none;
-  border-bottom: 1px solid var(--color-paper-canvas);
+  border-bottom: 1px solid var(--color-accent);
   padding-bottom: 4px;
 }
-.more:hover { color: var(--color-accent-tint); border-color: var(--color-accent-tint); }
+.more:hover { color: var(--color-accent-deep); border-color: var(--color-accent-deep); }
 
 @media (max-width: 1279px) {
   .grid { grid-template-columns: repeat(2, 1fr); }

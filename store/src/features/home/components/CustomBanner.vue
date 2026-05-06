@@ -44,27 +44,24 @@ import { RouterLink } from 'vue-router'
   margin: 96px 0;
 }
 
-/* 左半 dark text panel */
+/* 左半暖桃米 panel（同色系亮一階） */
 .text-panel {
   position: relative;
   overflow: hidden;
+  background: var(--color-paper-deep);
 }
 .text-bg {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.06), transparent 50%),
-    linear-gradient(135deg,
-      var(--color-accent-deep) 0%,
-      #4A3829 70%,
-      #3A2D22 130%);
+    radial-gradient(circle at 20% 30%, rgba(255, 252, 242, 0.5), transparent 50%);
 }
 .text-veil {
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 0.95 0 0 0 0 0.85 0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
-  opacity: 0.2;
-  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.32 0 0 0 0 0.22 0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
+  opacity: 0.3;
+  mix-blend-mode: multiply;
 }
 
 .text-inner {
@@ -75,7 +72,7 @@ import { RouterLink } from 'vue-router'
   display: flex;
   flex-direction: column;
   justify-content: center;
-  color: var(--color-paper-canvas);
+  color: var(--color-ink-strong);
 }
 
 .eyebrow {
@@ -88,20 +85,20 @@ import { RouterLink } from 'vue-router'
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.22em;
-  color: var(--color-fresh-soft);
+  color: var(--color-fresh);
   font-weight: 500;
 }
 .eyebrow-rule {
   width: 36px;
   height: 1px;
-  background: rgba(236, 227, 210, 0.4);
+  background: var(--color-accent-soft);
 }
 .eyebrow-tag {
   font-family: var(--font-display);
   font-style: italic;
   font-size: 14px;
   letter-spacing: 0.04em;
-  color: var(--color-accent-tint);
+  color: var(--color-accent);
 }
 
 .title {
@@ -111,13 +108,12 @@ import { RouterLink } from 'vue-router'
   line-height: 1.3;
   letter-spacing: 0.06em;
   margin: 0 0 32px;
-  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
 .em {
   font-family: var(--font-display);
   font-style: italic;
   font-weight: 300;
-  color: var(--color-accent-tint);
+  color: var(--color-accent);
   margin: 0 0.04em;
 }
 
@@ -127,7 +123,7 @@ import { RouterLink } from 'vue-router'
   font-size: 15px;
   line-height: 2;
   letter-spacing: 0.04em;
-  color: rgba(250, 244, 221, 0.85);
+  color: var(--color-ink-default);
   margin: 0 0 40px;
   max-width: 460px;
 }
@@ -139,23 +135,23 @@ import { RouterLink } from 'vue-router'
   letter-spacing: 0.28em;
   text-transform: uppercase;
   padding: 18px 36px;
-  border: 1px solid rgba(250, 244, 221, 0.7);
-  color: var(--color-paper-canvas);
+  border: 1px solid var(--color-ink-strong);
+  color: var(--color-ink-strong);
   text-decoration: none;
   align-self: flex-start;
   transition: all 200ms;
 }
 .cta:hover {
-  background: var(--color-paper-canvas);
-  color: var(--color-ink-strong);
-  border-color: var(--color-paper-canvas);
+  background: var(--color-ink-strong);
+  color: var(--color-paper-canvas);
+  border-color: var(--color-ink-strong);
 }
 
-/* 右半 visual */
+/* 右半 visual — canvas 同色淡底，跟左 panel 對比一階 */
 .visual {
   position: relative;
   overflow: hidden;
-  background: var(--color-paper-deep);
+  background: var(--color-paper-canvas);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -166,9 +162,9 @@ import { RouterLink } from 'vue-router'
   background:
     radial-gradient(circle at 30% 30%, var(--color-paper-surface), transparent 60%),
     linear-gradient(135deg,
-      var(--color-paper-deep) 0%,
-      var(--color-accent-tint) 50%,
-      var(--color-accent-soft) 130%);
+      var(--color-paper-surface) 0%,
+      var(--color-paper-canvas) 50%,
+      var(--color-accent-tint) 130%);
 }
 .visual-cap {
   position: absolute;
