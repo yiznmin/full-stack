@@ -56,6 +56,62 @@ async def upload_custom_photo(
 # ── Diagnostics（admin 用）─────────────────────────────────────────────
 
 
+@router.post("/admin/system/migrate-product-images", tags=["System"])
+async def migrate_product_images(
+    _=Depends(require_admin),
+    db=Depends(__import__('core.database', fromlist=['get_db']).get_db),
+):
+    """掃所有商品的 cover_image_url + product_images，把 production_jobs/ 路徑
+    server-side 複製到 product_images/ 公開路徑，更新 DB record。
+
+    用途：admin 之前「從變體模板匯入」時直接存 production_jobs URL（沒公開讀），
+    customer 看商品時會 ORB 擋住。這個 endpoint 一次性把所有舊紀錄修好。
+    """
+    from sqlalchemy import select
+    from product.models import Product, ProductImage
+    from product.service import _maybe_repath_to_public
+
+    fixed_covers = 0
+    fixed_images = 0
+    skipped = 0
+
+    # Cover images
+    result = await db.execute(
+        select(Product).where(
+            Product.cover_image_url.like("%production_jobs%")
+        )
+    )
+    for prod in result.scalars():
+        new_url = _maybe_repath_to_public(prod.cover_image_url)
+        if new_url != prod.cover_image_url:
+            prod.cover_image_url = new_url
+            fixed_covers += 1
+        else:
+            skipped += 1
+
+    # Product images
+    result = await db.execute(
+        select(ProductImage).where(
+            ProductImage.image_url.like("%production_jobs%")
+        )
+    )
+    for img in result.scalars():
+        new_url = _maybe_repath_to_public(img.image_url)
+        if new_url != img.image_url:
+            img.image_url = new_url
+            fixed_images += 1
+        else:
+            skipped += 1
+
+    await db.commit()
+    return {
+        "ok": True,
+        "fixed_covers": fixed_covers,
+        "fixed_images": fixed_images,
+        "skipped": skipped,
+    }
+
+
 @router.get("/admin/system/firebase-status", tags=["System"])
 async def firebase_status(_=Depends(require_admin)):
     """檢查 Firebase Storage bucket + CORS 設定（每次 reload 確保不是 cached）。"""

@@ -396,6 +396,10 @@ async def create_product(db: AsyncSession, data: dict) -> dict:
             raise BadRequestError("指定系列時 series_order 必填")
     await _validate_tag_ids(db, tag_ids)
 
+    # 自動處理 cover_image_url：production_jobs/ → 複製到公開路徑
+    if data.get("cover_image_url"):
+        data["cover_image_url"] = _maybe_repath_to_public(data["cover_image_url"])
+
     product = Product(**data)
     db.add(product)
     await db.flush()
@@ -416,6 +420,9 @@ async def get_product(db: AsyncSession, product_id: UUID) -> dict:
 async def update_product(db: AsyncSession, product_id: UUID, data: dict) -> dict:
     product = await _get_product_or_404(db, product_id)
     tag_ids = list(dict.fromkeys(data.pop("tag_ids", [])))
+    # 自動處理 cover_image_url：production_jobs/ → 複製到公開路徑
+    if data.get("cover_image_url"):
+        data["cover_image_url"] = _maybe_repath_to_public(data["cover_image_url"])
     effective_series_id = data["series_id"] if "series_id" in data else product.series_id
     if effective_series_id:
         await _get_series_or_404(db, effective_series_id)
@@ -475,11 +482,62 @@ async def delete_product(db: AsyncSession, product_id: UUID) -> None:
 
 # ── Product images ────────────────────────────────────────────────────────────
 
+def _maybe_repath_to_public(image_url: str) -> str:
+    """如果 URL 是 Firebase 內部路徑（production_jobs/），server-side 複製到
+    product_images/ 公開可讀路徑。其他 URL（包括外部 URL）原樣回傳。
+
+    回傳新的 Firebase download URL（如有複製）或原本 URL。
+    """
+    import logging
+    import urllib.parse
+    import uuid as _uuid
+
+    log = logging.getLogger(__name__)
+
+    # 解析 Firebase download URL
+    # https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded_path>?alt=media
+    if "firebasestorage.googleapis.com/v0/b/" not in image_url:
+        return image_url
+    try:
+        prefix = image_url.split("/o/", 1)[1]
+        encoded_path = prefix.split("?", 1)[0]
+        path = urllib.parse.unquote(encoded_path)
+    except (IndexError, ValueError):
+        return image_url
+
+    # 只處理 production_jobs/ 路徑
+    if not path.startswith("production_jobs/"):
+        return image_url
+
+    try:
+        from core.firebase import get_bucket
+        bucket = get_bucket()
+        source_blob = bucket.blob(path)
+        if not source_blob.exists():
+            log.warning(f"Source blob not found: {path}")
+            return image_url
+
+        # 目標路徑：product_images/<uuid>_<basename>
+        basename = path.rsplit("/", 1)[-1]
+        new_path = f"product_images/{_uuid.uuid4().hex}_{basename}"
+        new_blob = bucket.blob(new_path)
+        new_blob.rewrite(source_blob)
+
+        # 回 Firebase download URL（與 generate_public_signed_url 同 pattern）
+        encoded_new = urllib.parse.quote(new_path, safe="")
+        return f"https://firebasestorage.googleapis.com/v0/b/{bucket.name}/o/{encoded_new}?alt=media"
+    except Exception as e:
+        log.warning(f"Failed to repath image to public path: {e}")
+        return image_url
+
+
 async def add_product_image(
     db: AsyncSession, product_id: UUID, image_url: str, sort_order: int
 ) -> ProductImage:
     await _get_product_or_404(db, product_id)
-    image = ProductImage(product_id=product_id, image_url=image_url, sort_order=sort_order)
+    # 自動處理：production_jobs/ 路徑（admin 匯入變體模板時）→ 複製到 product_images/ 公開讀
+    final_url = _maybe_repath_to_public(image_url)
+    image = ProductImage(product_id=product_id, image_url=final_url, sort_order=sort_order)
     db.add(image)
     await db.commit()
     await db.refresh(image)
