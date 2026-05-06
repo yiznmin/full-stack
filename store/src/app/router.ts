@@ -31,6 +31,7 @@ import CustomProcessPage from '@/features/pages/CustomProcessPage.vue'
 import PricingPage from '@/features/pages/PricingPage.vue'
 import RefundPolicyPage from '@/features/pages/RefundPolicyPage.vue'
 import NotFoundPage from '@/shared/components/NotFoundPage.vue'
+import PaletteDebugPage from '@/features/dev/pages/PaletteDebugPage.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -77,6 +78,9 @@ export const router = createRouter({
     { path: '/reset-password', name: 'reset-password-query', component: ResetPasswordPage, meta: { layout: 'auth' } },
     { path: '/verify-email/:token', name: 'verify-email', component: VerifyEmailPage, meta: { layout: 'auth' } },
     { path: '/verify-email', name: 'verify-email-query', component: VerifyEmailPage, meta: { layout: 'auth' } },
+
+    // ── Dev palette overview ─────────────────────────────────────────────
+    { path: '/_palette', name: 'palette', component: PaletteDebugPage, meta: { layout: 'minimal' } },
 
     // ── 404 catch-all ────────────────────────────────────────────────────
     { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundPage, meta: { layout: 'default' } },
