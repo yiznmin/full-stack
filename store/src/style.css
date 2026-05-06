@@ -6,9 +6,9 @@
 /* 2026-05 update v4: 清新典雅 — 提高對比、加苔綠輔色破單調，營造雜誌節奏 */
 @theme {
   /* Paper & ink — canvas 偏冷的米白、surface 偏暖的奶油（兩者用色溫差分層而非亮度） */
-  --color-paper-canvas: #FAF4DD;
-  --color-paper-surface: #FFFAE5;
-  --color-paper-deep: #E5D9BC;
+  --color-paper-canvas: #F4EFE2;     /* 頁面底（user 確認的 pale ivory） */
+  --color-paper-surface: #FBF7EC;    /* 卡片高光（比 canvas 亮一階） */
+  --color-paper-deep: #EBDDC8;       /* 暖桃米 band（局部 highlighted 區塊用，跟 canvas 對比） */
 
   --color-ink-strong: #1F1A15;
   --color-ink-default: #3F362C;
