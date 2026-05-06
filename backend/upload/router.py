@@ -51,3 +51,51 @@ async def upload_custom_photo(
     return upload_service.generate_private_signed_url(
         "custom_photos", body.filename, body.content_type
     )
+
+
+# ── Diagnostics（admin 用）─────────────────────────────────────────────
+
+
+@router.get("/admin/system/firebase-status", tags=["System"])
+async def firebase_status(_=Depends(require_admin)):
+    """檢查 Firebase Storage bucket + CORS 設定。"""
+    from core.firebase import get_bucket
+    bucket = get_bucket()
+    return {
+        "bucket": bucket.name,
+        "cors": bucket.cors or [],
+    }
+
+
+@router.post("/admin/system/firebase-cors-fix", tags=["System"])
+async def firebase_cors_fix(_=Depends(require_admin)):
+    """一鍵修正 Firebase Storage CORS（允許 localhost / vercel admin 直傳）。"""
+    from core.firebase import get_bucket
+
+    ALLOWED_ORIGINS = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "https://yiimui-admin.vercel.app",
+        "https://paint-by-number-store.vercel.app",
+    ]
+    rules = [
+        {
+            "origin": ALLOWED_ORIGINS,
+            "method": ["PUT", "GET", "HEAD", "OPTIONS"],
+            "responseHeader": ["Content-Type"],
+            "maxAgeSeconds": 3600,
+        }
+    ]
+
+    bucket = get_bucket()
+    before = bucket.cors or []
+    bucket.cors = rules
+    bucket.patch()
+    return {
+        "ok": True,
+        "bucket": bucket.name,
+        "before": before,
+        "after": bucket.cors,
+        "message": "CORS rules updated",
+    }

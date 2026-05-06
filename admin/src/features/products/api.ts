@@ -386,13 +386,22 @@ export async function uploadFile(file: File): Promise<string> {
   })
 
   // Direct PUT to Firebase signed URL
-  const putRes = await fetch(signed.upload_url, {
-    method: 'PUT',
-    headers: { 'Content-Type': contentType },
-    body: file,
-  })
+  let putRes: Response
+  try {
+    putRes = await fetch(signed.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: file,
+    })
+  } catch (e) {
+    // 多半是 CORS — 給更具體的錯誤訊息
+    throw new Error(
+      'PUT Firebase 失敗（多半是 CORS 沒設）— 請 admin 用「系統 → Firebase CORS 修正」按鈕一次設定。' +
+      ` 原始錯誤：${(e as Error).message}`,
+    )
+  }
   if (!putRes.ok && !signed.upload_url.startsWith('https://stub.firebase')) {
-    throw new Error(`上傳失敗 HTTP ${putRes.status}`)
+    throw new Error(`Firebase 拒絕上傳：HTTP ${putRes.status}`)
   }
   return signed.public_url
 }
