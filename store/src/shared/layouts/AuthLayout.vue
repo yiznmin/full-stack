@@ -48,7 +48,7 @@ import SiteLogo from '@/shared/components/SiteLogo.vue'
   width: 100%;
   max-width: 440px;
   background: var(--color-paper-surface);
-  border: 1px solid var(--color-line-subtle);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   padding: 56px 44px 48px;
   box-shadow:
