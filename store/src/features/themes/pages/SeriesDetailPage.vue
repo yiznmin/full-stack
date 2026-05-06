@@ -2,9 +2,14 @@
 import { computed } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { Loader2, Layers, Star } from 'lucide-vue-next'
-import { useSeriesDetailQuery } from '@/features/browse/queries'
+import {
+  useSeriesDetailQuery,
+  useSeriesQuery,
+  useFeaturedSeriesQuery,
+} from '@/features/browse/queries'
 import { useProductsQuery } from '@/features/products/queries'
 import ProductCard from '@/features/products/components/ProductCard.vue'
+import SeriesCard from '@/features/themes/components/SeriesCard.vue'
 import type { ProductBrief } from '@/features/products/api'
 
 const route = useRoute()
@@ -53,6 +58,32 @@ const CELL_TONES = [
 function toneFor(idx: number) {
   return CELL_TONES[idx % CELL_TONES.length]
 }
+
+// 同主題其他系列（沒商品時用來導覽用戶）；無 theme_id 則 fallback 到精選系列
+const themeId = computed(() => series.value?.theme_id ?? undefined)
+const siblingSeriesQuery = useSeriesQuery(themeId)
+const featuredSeriesFallback = useFeaturedSeriesQuery()
+
+const otherSeries = computed(() => {
+  const currentId = series.value?.id
+  const sameTheme = (siblingSeriesQuery.data.value?.items ?? [])
+    .filter((s) => s.id !== currentId)
+  if (sameTheme.length > 0) return sameTheme.slice(0, 4)
+  return (featuredSeriesFallback.data.value?.items ?? [])
+    .filter((s) => s.id !== currentId)
+    .slice(0, 4)
+})
+
+const otherSeriesEyebrow = computed(() =>
+  series.value?.theme_name
+    ? `More in ${series.value.theme_name}`
+    : 'Featured Series',
+)
+const otherSeriesTitle = computed(() =>
+  series.value?.theme_name
+    ? `${series.value.theme_name} 其他系列`
+    : '精選系列',
+)
 </script>
 
 <template>
@@ -178,6 +209,28 @@ function toneFor(idx: number) {
       </div>
       <div class="products-grid">
         <ProductCard v-for="p in allProducts" :key="p.id" :product="p" />
+      </div>
+    </section>
+
+    <!-- 沒商品時：導覽其他系列（同主題優先，否則精選） -->
+    <section v-else-if="otherSeries.length > 0" class="others-section">
+      <div class="section-header">
+        <span class="section-eyebrow">{{ otherSeriesEyebrow }}</span>
+        <h2 class="section-title">{{ otherSeriesTitle }}</h2>
+        <span class="section-count">{{ otherSeries.length }} 個系列</span>
+      </div>
+      <div class="others-grid">
+        <SeriesCard
+          v-for="(s, idx) in otherSeries"
+          :key="s.id"
+          :series="s"
+          :index="idx"
+        />
+      </div>
+      <div class="others-footer">
+        <RouterLink to="/themes" class="others-link">
+          看全部主題與系列 →
+        </RouterLink>
       </div>
     </section>
   </section>
@@ -572,12 +625,45 @@ function toneFor(idx: number) {
   gap: 28px;
 }
 
+/* ── Other series section ── */
+.others-section {
+  padding-top: 32px;
+  border-top: 1px solid var(--color-line-subtle);
+}
+.others-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-bottom: 36px;
+}
+.others-footer {
+  text-align: center;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-line-subtle);
+}
+.others-link {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-accent);
+  padding-bottom: 4px;
+  transition: color 150ms, border-color 150ms;
+}
+.others-link:hover {
+  color: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+}
+
 @media (max-width: 1279px) {
   .hero-title { font-size: 48px; }
   .mosaic { height: 460px; }
   .deco-num { font-size: 72px; }
   .deco-word { font-size: 56px; }
-  .products-grid { grid-template-columns: repeat(3, 1fr); }
+  .products-grid,
+  .others-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 1023px) {
   .page { padding: 40px 32px 64px; }
@@ -592,7 +678,8 @@ function toneFor(idx: number) {
   .cell-2 { grid-column: 2; grid-row: 2; }
   .cell-3 { grid-column: 1 / span 2; grid-row: 3; }
   .deco-num { font-size: 64px; }
-  .products-grid { grid-template-columns: repeat(2, 1fr); }
+  .products-grid,
+  .others-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 767px) {
   .page { padding: 32px 24px 48px; }
@@ -613,6 +700,7 @@ function toneFor(idx: number) {
     grid-row: auto;
   }
   .deco-num { font-size: 56px; }
-  .products-grid { grid-template-columns: 1fr; }
+  .products-grid,
+  .others-grid { grid-template-columns: 1fr; }
 }
 </style>
