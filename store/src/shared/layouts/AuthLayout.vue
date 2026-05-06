@@ -11,6 +11,8 @@ import SiteLogo from '@/shared/components/SiteLogo.vue'
 
     <main class="auth-main">
       <div class="auth-card">
+        <span class="card-stripe" aria-hidden="true"></span>
+        <span class="card-mark" aria-hidden="true">Y</span>
         <RouterView />
       </div>
     </main>
@@ -42,12 +44,48 @@ import SiteLogo from '@/shared/components/SiteLogo.vue'
 }
 
 .auth-card {
+  position: relative;
   width: 100%;
   max-width: 440px;
   background: var(--color-paper-surface);
   border: 1px solid var(--color-line-subtle);
   border-radius: var(--radius-sm);
-  padding: 48px 40px;
+  padding: 56px 44px 48px;
+  box-shadow:
+    0 1px 0 rgba(31, 26, 21, 0.02),
+    0 12px 32px -16px rgba(31, 26, 21, 0.08);
+  overflow: hidden;
+}
+
+/* 頂部苔綠細條 — magazine masthead 風格 */
+.card-stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--color-fresh) 0%,
+    var(--color-accent-soft) 60%,
+    var(--color-accent-wine-soft) 100%
+  );
+}
+
+/* 右上 Y 裝飾 — 編輯誌字標 */
+.card-mark {
+  position: absolute;
+  top: 16px;
+  right: 22px;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-style: italic;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--color-accent);
+  opacity: 0.45;
+  user-select: none;
+  pointer-events: none;
 }
 
 .auth-footer {
@@ -62,6 +100,7 @@ import SiteLogo from '@/shared/components/SiteLogo.vue'
 
 @media (max-width: 767px) {
   .auth-header { padding: 24px 24px 8px; }
-  .auth-card { padding: 32px 24px; }
+  .auth-card { padding: 40px 24px 32px; }
+  .card-mark { font-size: 22px; top: 12px; right: 16px; }
 }
 </style>

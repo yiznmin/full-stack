@@ -166,7 +166,7 @@ const showFallback = computed(
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(252, 249, 242, 0.9);
+  background: rgba(247, 241, 226, 0.9);
   backdrop-filter: blur(8px);
   border: 1px solid var(--color-line-subtle);
   border-radius: 50%;
