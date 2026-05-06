@@ -7,8 +7,8 @@
 @theme {
   /* Paper & ink — canvas 偏冷的米白、surface 偏暖的奶油（兩者用色溫差分層而非亮度） */
   --color-paper-canvas: #F2ECE0;
-  --color-paper-surface: #FCF5DC;
-  --color-paper-deep: #EFE5CC;
+  --color-paper-surface: #E8DEC2;
+  --color-paper-deep: #DCD0B0;
 
   --color-ink-strong: #1F1A15;
   --color-ink-default: #3F362C;
