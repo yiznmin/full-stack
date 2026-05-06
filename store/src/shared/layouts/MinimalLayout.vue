@@ -26,7 +26,7 @@ import SiteLogo from '@/shared/components/SiteLogo.vue'
 
 .minimal-header {
   border-bottom: 1px solid var(--color-line-subtle);
-  background: rgba(244, 238, 223, 0.92);
+  background: rgba(242, 236, 224, 0.92);
   backdrop-filter: blur(12px);
 }
 

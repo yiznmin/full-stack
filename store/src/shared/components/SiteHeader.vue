@@ -167,7 +167,7 @@ const TAGS_LIMIT = 8
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(244, 238, 223, 0.92);
+  background: rgba(242, 236, 224, 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--color-line-subtle);
