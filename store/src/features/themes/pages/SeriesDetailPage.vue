@@ -48,12 +48,12 @@ const heroCells = computed<Array<ProductBrief | null>>(() => {
   return [list[0] ?? null, list[1] ?? null, list[2] ?? null, list[3] ?? null]
 })
 
-// 4 種雜誌 mood 漸層：苔綠 / 舊玫瑰 / 焦糖 / 煙青
+// 4 種雜誌 mood 漸層：苔綠 / 舊玫瑰 / 焦糖 / 煙青（從乳白 surface 起色）
 const CELL_TONES = [
-  'linear-gradient(135deg, #FFFFFF 0%, #DDE5D2 70%, #97A687 130%)',
-  'linear-gradient(135deg, #FFFFFF 0%, #ECDFDA 70%, #C9A8A8 130%)',
-  'linear-gradient(135deg, #FFFFFF 0%, #ECE3D2 70%, #B8A084 130%)',
-  'linear-gradient(135deg, #FFFFFF 0%, #DCE3E2 70%, #98ABA8 130%)',
+  'linear-gradient(135deg, #FFFCF4 0%, #DDE5D2 70%, #97A687 130%)',
+  'linear-gradient(135deg, #FFFCF4 0%, #ECDFDA 70%, #C9A8A8 130%)',
+  'linear-gradient(135deg, #FFFCF4 0%, #ECE3D2 70%, #B8A084 130%)',
+  'linear-gradient(135deg, #FFFCF4 0%, #DCE3E2 70%, #98ABA8 130%)',
 ]
 function toneFor(idx: number) {
   return CELL_TONES[idx % CELL_TONES.length]

@@ -5,9 +5,9 @@
 /* ── Yiimui Store Design Tokens (see store/docs/design_system.md §3.4) ────── */
 /* 2026-05 update v4: 清新典雅 — 提高對比、加苔綠輔色破單調，營造雜誌節奏 */
 @theme {
-  /* Paper & ink — 接近純白底 + 純白卡片 + 銳利文字（user：再白一點亮一點） */
+  /* Paper & ink — 乳白底 + 微亮表面（surface 比 canvas 高 1-2 階即可，避免純白撕裂） */
   --color-paper-canvas: #FCF9F2;
-  --color-paper-surface: #FFFFFF;
+  --color-paper-surface: #FFFCF4;
   --color-paper-deep: #F0E8D6;
 
   --color-ink-strong: #1F1A15;
