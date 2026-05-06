@@ -124,9 +124,37 @@ function goCheckout() {
         >
           <div class="item-no">{{ String(idx + 1).padStart(2, '0') }}</div>
 
+          <RouterLink
+            v-if="item.product_id"
+            :to="`/products/${item.product_id}`"
+            class="item-thumb"
+          >
+            <img
+              v-if="item.thumb_url"
+              :src="item.thumb_url"
+              :alt="item.product_title"
+              loading="lazy"
+            />
+            <div v-else class="thumb-fallback"></div>
+          </RouterLink>
+          <div v-else class="item-thumb item-thumb-static">
+            <img
+              v-if="item.thumb_url"
+              :src="item.thumb_url"
+              :alt="item.product_title"
+              loading="lazy"
+            />
+            <div v-else class="thumb-fallback"></div>
+          </div>
+
           <div class="item-main">
             <h3 class="item-title">
-              {{ item.product_title }}
+              <RouterLink
+                v-if="item.product_id"
+                :to="`/products/${item.product_id}`"
+                class="title-link"
+              >{{ item.product_title }}</RouterLink>
+              <span v-else>{{ item.product_title }}</span>
               <span v-if="!item.is_active" class="item-badge">已下架</span>
             </h3>
             <p v-if="specSummary(item)" class="item-spec">{{ specSummary(item) }}</p>
@@ -338,7 +366,7 @@ function goCheckout() {
 }
 .item {
   display: grid;
-  grid-template-columns: 48px 1fr auto auto 32px;
+  grid-template-columns: 32px 84px 1fr auto auto 32px;
   align-items: center;
   gap: 24px;
   padding: 24px 0;
@@ -354,6 +382,43 @@ function goCheckout() {
   color: var(--color-fresh);
   font-weight: 500;
 }
+
+.item-thumb {
+  display: block;
+  width: 84px;
+  height: 84px;
+  background: var(--color-paper-deep);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  text-decoration: none;
+  transition: border-color 150ms;
+  flex-shrink: 0;
+}
+.item-thumb:not(.item-thumb-static):hover { border-color: var(--color-line); }
+.item-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  filter: sepia(0.05) saturate(0.95);
+}
+.thumb-fallback {
+  width: 100%; height: 100%;
+  background: linear-gradient(
+    135deg,
+    var(--color-paper-deep) 0%,
+    var(--color-accent-tint) 60%,
+    var(--color-accent-soft) 130%
+  );
+  opacity: 0.6;
+}
+
+.title-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 150ms;
+}
+.title-link:hover { color: var(--color-accent); }
+
 .item-main { min-width: 0; }
 .item-title {
   font-family: var(--font-cn-serif);
@@ -577,14 +642,16 @@ function goCheckout() {
 @media (max-width: 767px) {
   .page { padding: 32px 24px 48px; }
   .item {
-    grid-template-columns: 36px 1fr 32px;
-    grid-template-rows: auto auto;
-    gap: 12px 16px;
+    grid-template-columns: 72px 1fr 32px;
+    grid-template-rows: auto auto auto;
+    gap: 8px 14px;
+    padding: 20px 0;
   }
-  .item-no { grid-row: 1; }
+  .item-no { display: none; }
+  .item-thumb { grid-row: 1 / span 2; grid-column: 1; width: 72px; height: 72px; }
   .item-main { grid-row: 1; grid-column: 2; }
   .item-remove { grid-row: 1; grid-column: 3; }
   .item-qty { grid-row: 2; grid-column: 2; justify-self: start; }
-  .item-price { grid-row: 2; grid-column: 2 / 4; justify-self: end; min-width: auto; }
+  .item-price { grid-row: 3; grid-column: 1 / 4; justify-self: end; min-width: auto; padding-top: 8px; border-top: 1px dashed var(--color-line-subtle); width: 100%; text-align: right; }
 }
 </style>

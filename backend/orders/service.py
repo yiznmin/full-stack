@@ -135,10 +135,16 @@ async def get_cart(db: AsyncSession, user_id: UUID) -> dict:
         fulfilled_units = fulfillable
         preorder_units = qty - fulfillable
         variant_spec = _job_spec(job) if job else {}
+        # 縮圖：優先 variant filled_template、其次 product cover
+        thumb = (job.filled_template_url if job and job.filled_template_url else product.cover_image_url)
         items.append({
             "id": cart_item.id,
             "variant_id": variant.id,
+            "product_id": product.id,
             "product_title": product.title,
+            "product_image_url": product.cover_image_url,
+            "variant_image_url": job.filled_template_url if job else None,
+            "thumb_url": thumb,
             "variant_spec": variant_spec,
             "unit_price": float(variant.price),
             "quantity": qty,

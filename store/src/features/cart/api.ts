@@ -16,7 +16,11 @@ export interface VariantSpec {
 export interface CartItem {
   id: string
   variant_id: string
+  product_id?: string | null
   product_title: string
+  product_image_url?: string | null
+  variant_image_url?: string | null
+  thumb_url?: string | null
   variant_spec: VariantSpec | Record<string, never>
   unit_price: number
   quantity: number

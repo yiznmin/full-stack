@@ -7,7 +7,11 @@ from pydantic import BaseModel
 class CartItemResponse(BaseModel):
     id: UUID
     variant_id: UUID
+    product_id: UUID | None = None
     product_title: str
+    product_image_url: str | None = None
+    variant_image_url: str | None = None
+    thumb_url: str | None = None
     variant_spec: dict
     unit_price: float
     quantity: int
