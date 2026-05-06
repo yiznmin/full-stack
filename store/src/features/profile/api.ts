@@ -3,9 +3,11 @@
 
 const API_BASE = '/api/v1'
 
+export type ShippingType = 'home' | 'seven_eleven' | 'family_mart'
+
 export interface ShippingProfile {
   id: string
-  shipping_type: 'home' | 'convenience'
+  shipping_type: ShippingType
   recipient_name: string
   phone: string
   email: string | null
@@ -15,6 +17,19 @@ export interface ShippingProfile {
   store_id: string | null
   store_name: string | null
   is_default: boolean
+}
+
+export interface ShippingProfileInput {
+  shipping_type: ShippingType
+  recipient_name: string
+  phone: string
+  email?: string | null
+  city?: string | null
+  district?: string | null
+  address_detail?: string | null
+  store_id?: string | null
+  store_name?: string | null
+  is_default?: boolean
 }
 
 export interface ApiError extends Error {
@@ -49,9 +64,32 @@ export async function listShippingProfiles(): Promise<ShippingProfile[]> {
   return jsonRequest<ShippingProfile[]>('/users/me/shipping-profiles')
 }
 
-export async function createShippingProfile(data: Partial<ShippingProfile>): Promise<ShippingProfile> {
+export async function createShippingProfile(data: ShippingProfileInput): Promise<ShippingProfile> {
   return jsonRequest<ShippingProfile>('/users/me/shipping-profiles', {
     method: 'POST',
     body: JSON.stringify(data),
   })
+}
+
+export async function updateShippingProfile(
+  id: string,
+  data: ShippingProfileInput,
+): Promise<ShippingProfile> {
+  return jsonRequest<ShippingProfile>(`/users/me/shipping-profiles/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteShippingProfile(id: string): Promise<void> {
+  await jsonRequest<void>(`/users/me/shipping-profiles/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function setDefaultShippingProfile(id: string): Promise<ShippingProfile> {
+  return jsonRequest<ShippingProfile>(
+    `/users/me/shipping-profiles/${id}/set-default`,
+    { method: 'PATCH' },
+  )
 }

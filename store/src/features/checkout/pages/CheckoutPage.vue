@@ -36,9 +36,13 @@ const selectedProfile = computed(() =>
   profiles.value.find((p) => p.id === selectedProfileId.value) ?? null,
 )
 
-const shippingType = computed<ShippingType>(() =>
-  (selectedProfile.value?.shipping_type as ShippingType) ?? 'home',
-)
+// profile.shipping_type 是 'home' | 'seven_eleven' | 'family_mart'
+// 但 cart checkout-preview API 只收 'home' | 'convenience'，所以做 mapping
+const shippingType = computed<ShippingType>(() => {
+  const t = selectedProfile.value?.shipping_type
+  if (!t || t === 'home') return 'home'
+  return 'convenience'
+})
 
 // 折扣碼
 const promoCode = ref('')
@@ -157,6 +161,8 @@ function profileSummary(p: profileApi.ShippingProfile): string {
                   <MapPin v-if="p.shipping_type === 'home'" :size="14" />
                   <Store v-else :size="14" />
                 </span>
+                <!-- shipping_type 顯示用：home / 7-Eleven / 全家 -->
+
                 <div class="profile-info">
                   <div class="profile-name">
                     {{ p.recipient_name }}
