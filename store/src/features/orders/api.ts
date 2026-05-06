@@ -161,3 +161,56 @@ export async function listOrders(
 export async function getOrder(id: string): Promise<OrderDetail> {
   return jsonRequest<OrderDetail>(`/orders/${id}`)
 }
+
+// ── Payment / Cancel / Confirm Received ─────────────────────────
+
+export interface PaymentSubmissionInput {
+  transfer_amount: number
+  transfer_date: string  // YYYY-MM-DD
+  transfer_time: string  // HH:MM:SS or HH:MM
+  account_last5: string
+  notes?: string | null
+}
+
+export async function submitPayment(
+  orderId: string,
+  data: PaymentSubmissionInput,
+): Promise<PaymentSubmission> {
+  return jsonRequest<PaymentSubmission>(`/orders/${orderId}/payment-submission`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export interface ConfirmReceivedResponse {
+  id: string
+  order_number: string
+  status: OrderStatus
+  completed_at: string | null
+}
+
+export async function confirmReceived(orderId: string): Promise<ConfirmReceivedResponse> {
+  return jsonRequest<ConfirmReceivedResponse>(`/orders/${orderId}/confirm-received`, {
+    method: 'POST',
+  })
+}
+
+export interface CancelOrderResponse {
+  id: string
+  order_number: string
+  status: OrderStatus
+  cancel_reason_code: string | null
+  cancel_reason_note: string | null
+  refund_amount: number | null
+  refunded_at: string | null
+}
+
+export async function cancelOrder(
+  orderId: string,
+  cancelReason: string,
+): Promise<CancelOrderResponse> {
+  return jsonRequest<CancelOrderResponse>(`/orders/${orderId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ cancel_reason: cancelReason }),
+  })
+}

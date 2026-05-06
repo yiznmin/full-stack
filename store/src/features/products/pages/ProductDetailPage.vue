@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRoute, RouterLink } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { Loader2, Package, Sparkles } from 'lucide-vue-next'
 import { useProductDetailQuery, useRelatedProductsQuery } from '../queries'
 import type { ProductDetail, ProductVariant, ProductImage, ProductBrief } from '../api'
@@ -8,6 +8,9 @@ import ProductGallery from '../components/ProductGallery.vue'
 import VariantSelector from '../components/VariantSelector.vue'
 import ProductDescription from '../components/ProductDescription.vue'
 import ProductCard from '../components/ProductCard.vue'
+import { useAddCartItemMutation } from '@/features/cart/queries'
+import { useAuthStore } from '@/features/auth/store'
+import type { ApiError } from '@/features/cart/api'
 
 const route = useRoute()
 
@@ -107,22 +110,51 @@ const related = computed(() => {
   })) ?? []
 })
 
-// Cart toast (S05 才做真邏輯)
+// Cart
+const router = useRouter()
+const auth = useAuthStore()
+const addCartMut = useAddCartItemMutation()
+
 const toast = ref<string | null>(null)
+const toastKind = ref<'info' | 'success' | 'error'>('info')
 let toastTimer: ReturnType<typeof setTimeout> | null = null
-function showToast(msg: string) {
+function showToast(msg: string, kind: 'info' | 'success' | 'error' = 'info') {
   toast.value = msg
+  toastKind.value = kind
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => {
     toast.value = null
   }, 3500)
 }
-function onAddToCart() {
-  if (!selectedVariant.value) {
-    showToast('請先選擇尺寸 / 難易度 / 細緻度')
+
+async function onAddToCart() {
+  if (isPreview.value) {
+    showToast('預覽模式無法加入購物車', 'info')
     return
   }
-  showToast('加購功能即將上線（S05 模組規劃中）')
+  if (!selectedVariant.value) {
+    showToast('請先選擇尺寸 / 難易度', 'info')
+    return
+  }
+  if (!auth.isLoggedIn) {
+    // 未登入 → 跳登入帶 redirect 回來
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  try {
+    await addCartMut.mutateAsync({
+      variantId: selectedVariant.value.id,
+      quantity: 1,
+    })
+    showToast('✓ 已加入購物車', 'success')
+  } catch (e) {
+    const err = e as ApiError
+    if (err.status === 401) {
+      router.push({ path: '/login', query: { redirect: route.fullPath } })
+      return
+    }
+    showToast(err.detail || '加入失敗，請稍後再試', 'error')
+  }
 }
 </script>
 
@@ -192,11 +224,14 @@ function onAddToCart() {
           <button
             type="button"
             class="btn btn-primary"
-            :disabled="!selectedVariant"
+            :disabled="!selectedVariant || addCartMut.isPending.value"
             @click="onAddToCart"
-          >加入購物車</button>
+          >
+            <Loader2 v-if="addCartMut.isPending.value" class="btn-spin" />
+            <span>{{ addCartMut.isPending.value ? '加入中...' : '加入購物車' }}</span>
+          </button>
           <Transition name="toast">
-            <span v-if="toast" class="toast">{{ toast }}</span>
+            <span v-if="toast" class="toast" :class="`toast-${toastKind}`">{{ toast }}</span>
           </Transition>
         </div>
 
@@ -449,6 +484,25 @@ function onAddToCart() {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-xs);
 }
+.toast-success {
+  color: var(--color-fresh);
+  background: var(--color-fresh-tint);
+  border-color: var(--color-fresh);
+}
+.toast-error {
+  color: var(--color-state-danger);
+  background: rgba(123, 46, 64, 0.06);
+  border-color: var(--color-state-danger);
+}
+
+.btn-spin {
+  width: 14px; height: 14px;
+  stroke: currentColor; stroke-width: 1.75; fill: none;
+  animation: btn-spin 1s linear infinite;
+  margin-right: 8px;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+.btn-primary { display: inline-flex; align-items: center; justify-content: center; }
 
 .toast-enter-active, .toast-leave-active {
   transition: opacity 200ms ease, transform 200ms ease;

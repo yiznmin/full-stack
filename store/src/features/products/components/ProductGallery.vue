@@ -14,13 +14,27 @@ const props = defineProps<{
 
 const allImages = computed(() => {
   const base: { url: string; key: string; label?: string }[] = []
-  if (props.cover) base.push({ url: props.cover, key: 'cover', label: '封面' })
-  for (const img of props.extras ?? []) {
+  const seen = new Set<string>()
+
+  // 先按 sort_order 加 product_images
+  const extras = [...(props.extras ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+  for (const img of extras) {
+    if (seen.has(img.image_url)) continue
+    seen.add(img.image_url)
     base.push({ url: img.image_url, key: img.id })
   }
-  if (props.variantImage) {
+
+  // cover 若不在 extras 內，插到最前面（但不重複）
+  if (props.cover && !seen.has(props.cover)) {
+    seen.add(props.cover)
+    base.unshift({ url: props.cover, key: 'cover', label: '封面' })
+  }
+
+  // variant filled_template — 永遠最後（也去重）
+  if (props.variantImage && !seen.has(props.variantImage)) {
     base.push({ url: props.variantImage, key: 'variant', label: '配色預覽' })
   }
+
   return base
 })
 
