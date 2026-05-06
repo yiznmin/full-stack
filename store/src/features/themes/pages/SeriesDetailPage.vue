@@ -36,16 +36,10 @@ const allProducts = computed<ProductBrief[]>(() => {
   }))
 })
 
-// Pick 區塊：優先真實精選；無則 fallback 前 4 個
-const pickedProducts = computed<ProductBrief[]>(() => {
-  const featured = featuredQuery.data.value?.items ?? []
-  if (featured.length > 0) return featured.slice(0, 4)
-  return allProducts.value.slice(0, 4)
-})
-
-// Hero 右側 4 cell collage — 有商品就用商品，無則用裝飾 tone
+// Hero 4 cell mosaic — 優先 admin 真實精選 4 個；無則 fallback 前 4 個
 const heroCells = computed<Array<ProductBrief | null>>(() => {
-  const list = pickedProducts.value
+  const featured = featuredQuery.data.value?.items ?? []
+  const list = featured.length > 0 ? featured.slice(0, 4) : allProducts.value.slice(0, 4)
   return [list[0] ?? null, list[1] ?? null, list[2] ?? null, list[3] ?? null]
 })
 
@@ -59,12 +53,6 @@ const CELL_TONES = [
 function toneFor(idx: number) {
   return CELL_TONES[idx % CELL_TONES.length]
 }
-
-// 排除 picked 已顯示的
-const restProducts = computed<ProductBrief[]>(() => {
-  const pickedIds = new Set(pickedProducts.value.map((p) => p.id))
-  return allProducts.value.filter((p) => !pickedIds.has(p.id))
-})
 </script>
 
 <template>
@@ -118,14 +106,6 @@ const restProducts = computed<ProductBrief[]>(() => {
         </div>
       </div>
 
-      <!-- 右上 5 色票（呼應 moodboard 風） -->
-      <aside class="hero-palette" aria-label="moodboard 色票">
-        <span class="swatch" style="background: #6E553F"></span>
-        <span class="swatch" style="background: #B08966"></span>
-        <span class="swatch" style="background: #C8B79C"></span>
-        <span class="swatch" style="background: #97A687"></span>
-        <span class="swatch" style="background: #FCF9F2"></span>
-      </aside>
     </header>
 
     <!-- 全寬 magazine mosaic — 4 格不對稱（左 tall · 中上 wide · 中下 wide · 右 tall） -->
@@ -189,25 +169,15 @@ const restProducts = computed<ProductBrief[]>(() => {
       </template>
     </section>
 
-    <!-- Pick：橫向 magazine strip（有商品時）-->
-    <section v-if="pickedProducts.length > 0" class="picks">
-      <div class="picks-header">
-        <span class="picks-eyebrow">Pick of this Series</span>
-        <span class="picks-count">{{ pickedProducts.length }} / {{ series.products.length }}</span>
-      </div>
-      <div class="picks-grid">
-        <ProductCard v-for="p in pickedProducts" :key="p.id" :product="p" />
-      </div>
-    </section>
-
-    <!-- 系列其他商品 -->
-    <section v-if="restProducts.length > 0" class="products-section">
+    <!-- 該系列全部商品（陣列排列） -->
+    <section v-if="allProducts.length > 0" class="products-section">
       <div class="section-header">
-        <span class="section-eyebrow">More in this Series</span>
-        <h2 class="section-title">系列其他商品</h2>
+        <span class="section-eyebrow">All Products</span>
+        <h2 class="section-title">本系列全部商品</h2>
+        <span class="section-count">{{ allProducts.length }} 件</span>
       </div>
       <div class="products-grid">
-        <ProductCard v-for="p in restProducts" :key="p.id" :product="p" />
+        <ProductCard v-for="p in allProducts" :key="p.id" :product="p" />
       </div>
     </section>
   </section>
@@ -276,35 +246,12 @@ const restProducts = computed<ProductBrief[]>(() => {
 .breadcrumb a:hover { color: var(--color-accent); }
 .breadcrumb .current { color: var(--color-ink-default); }
 
-/* ── Hero (moodboard 風 — 標題塊 + 右上色票) ── */
+/* ── Hero (moodboard 風 — 純標題塊) ── */
 .hero {
   margin: 0 0 32px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 48px;
-  align-items: start;
 }
 
 .hero-text { display: flex; flex-direction: column; max-width: 720px; }
-
-/* 5 色票（呼應 moodboard 右上） */
-.hero-palette {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px;
-  background: var(--color-paper-surface);
-  border: 1px solid var(--color-line-subtle);
-  border-radius: var(--radius-xs);
-  margin-top: 8px;
-}
-.swatch {
-  width: 36px;
-  height: 36px;
-  border-radius: 2px;
-  display: inline-block;
-}
-.swatch:last-child { border: 1px solid var(--color-line-subtle); }
 
 .hero-eyebrow {
   display: flex;
@@ -583,52 +530,27 @@ const restProducts = computed<ProductBrief[]>(() => {
   border-color: var(--color-accent-deep);
 }
 
-/* ── Picks ── */
-.picks {
-  margin-bottom: 96px;
-  padding-top: 28px;
+
+/* ── Products section (本系列全部商品) ── */
+.products-section {
+  padding-top: 32px;
   border-top: 1px solid var(--color-line-subtle);
 }
-.picks-header {
+.section-header {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
   margin-bottom: 36px;
-  gap: 24px;
 }
-.picks-eyebrow {
+.section-eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.32em;
   text-transform: uppercase;
   color: var(--color-fresh);
-}
-.picks-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  color: var(--color-ink-muted);
-}
-.picks-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 28px;
-}
-
-/* ── Products section (More in this Series) ── */
-.products-section {
-  padding-top: 28px;
-  border-top: 1px solid var(--color-line-subtle);
-}
-.section-header { margin-bottom: 36px; }
-.section-eyebrow {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--color-ink-muted);
-  margin-bottom: 10px;
+  width: 100%;
+  margin-bottom: 6px;
 }
 .section-title {
   font-family: var(--font-cn-serif);
@@ -637,6 +559,12 @@ const restProducts = computed<ProductBrief[]>(() => {
   letter-spacing: 0.06em;
   color: var(--color-ink-strong);
   margin: 0;
+}
+.section-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--color-ink-muted);
 }
 .products-grid {
   display: grid;
@@ -649,17 +577,10 @@ const restProducts = computed<ProductBrief[]>(() => {
   .mosaic { height: 460px; }
   .deco-num { font-size: 72px; }
   .deco-word { font-size: 56px; }
-  .picks-grid,
   .products-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 1023px) {
   .page { padding: 40px 32px 64px; }
-  .hero {
-    grid-template-columns: 1fr;
-    gap: 24px;
-  }
-  .hero-palette { align-self: flex-start; }
-  .swatch { width: 28px; height: 28px; }
   .hero-title { font-size: 40px; }
   .mosaic {
     grid-template-columns: 1fr 1fr;
@@ -671,7 +592,6 @@ const restProducts = computed<ProductBrief[]>(() => {
   .cell-2 { grid-column: 2; grid-row: 2; }
   .cell-3 { grid-column: 1 / span 2; grid-row: 3; }
   .deco-num { font-size: 64px; }
-  .picks-grid,
   .products-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 767px) {
@@ -693,7 +613,6 @@ const restProducts = computed<ProductBrief[]>(() => {
     grid-row: auto;
   }
   .deco-num { font-size: 56px; }
-  .picks-grid,
   .products-grid { grid-template-columns: 1fr; }
 }
 </style>
