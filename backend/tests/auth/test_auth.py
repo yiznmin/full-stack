@@ -1,11 +1,11 @@
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from auth.models import EmailVerificationToken, PasswordResetToken, User
-from auth.service import _hash_token
+from auth.models import EmailVerificationToken, PasswordResetToken, RoleEnum, User
+from auth.service import _hash_password, _hash_token, cleanup_unverified_users
 
 REGISTER_URL = "/api/v1/auth/register"
 LOGIN_URL = "/api/v1/auth/login"
@@ -394,3 +394,122 @@ async def test_admin_login_success(client: AsyncClient, db):
     assert res.status_code == 200
     assert res.json()["role"] == "admin"
     assert "access_token" in res.cookies
+
+
+# ── Cleanup unverified users ───────────────────────────────────────────────────
+
+async def _make_user(db, email: str, *, verified: bool, age_hours: int, role=RoleEnum.customer):
+    user = User(
+        name=f"u_{email}",
+        email=email,
+        password_hash=_hash_password("p4ssw0rd_xyz"),
+        role=role,
+        is_email_verified=verified,
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    # 強制 created_at 為過去時間（service 比對用 created_at）
+    user.created_at = datetime.now(UTC) - timedelta(hours=age_hours)
+    await db.commit()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_cleanup_deletes_old_unverified_customer(db):
+    user = await _make_user(db, "stale@test.com", verified=False, age_hours=30)
+    user_id = user.id
+
+    deleted = await cleanup_unverified_users(db, grace_hours=25)
+
+    assert deleted == 1
+    result = await db.execute(select(User).where(User.id == user_id))
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_skips_recent_unverified_customer(db):
+    user = await _make_user(db, "fresh@test.com", verified=False, age_hours=10)
+
+    deleted = await cleanup_unverified_users(db, grace_hours=25)
+
+    assert deleted == 0
+    result = await db.execute(select(User).where(User.id == user.id))
+    assert result.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_skips_verified_user(db):
+    user = await _make_user(db, "verified@test.com", verified=True, age_hours=100)
+
+    deleted = await cleanup_unverified_users(db, grace_hours=25)
+
+    assert deleted == 0
+    result = await db.execute(select(User).where(User.id == user.id))
+    assert result.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_skips_admin_role(db):
+    user = await _make_user(
+        db, "stale_admin@test.com", verified=False, age_hours=100, role=RoleEnum.admin
+    )
+
+    deleted = await cleanup_unverified_users(db, grace_hours=25)
+
+    assert deleted == 0
+    result = await db.execute(select(User).where(User.id == user.id))
+    assert result.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_cascades_tokens(db):
+    user = await _make_user(db, "with_tokens@test.com", verified=False, age_hours=30)
+    db.add(EmailVerificationToken(
+        user_id=user.id,
+        token="x" * 64,
+        token_type="signup",
+        expires_at=datetime.now(UTC) - timedelta(hours=1),
+    ))
+    db.add(PasswordResetToken(
+        user_id=user.id,
+        token="y" * 64,
+        expires_at=datetime.now(UTC) - timedelta(hours=1),
+    ))
+    await db.commit()
+
+    deleted = await cleanup_unverified_users(db, grace_hours=25)
+
+    assert deleted == 1
+    ev = await db.execute(
+        select(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id)
+    )
+    assert ev.scalar_one_or_none() is None
+    pr = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
+    )
+    assert pr.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_frees_email_for_reregistration(client: AsyncClient, db):
+    """user 註冊後 25h+ 沒驗證 → cleanup → 同 email 可再次註冊。"""
+    email = "reuse@test.com"
+
+    # 第一次註冊
+    await client.post(REGISTER_URL, json={"name": "first", "email": email, "password": "abc1234567"})
+
+    # 強制讓帳號變舊
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one()
+    user.created_at = datetime.now(UTC) - timedelta(hours=30)
+    await db.commit()
+
+    # cleanup 後 email 釋出
+    await cleanup_unverified_users(db, grace_hours=25)
+
+    # 同 email 再註冊應該成功
+    res = await client.post(
+        REGISTER_URL, json={"name": "second", "email": email, "password": "abc1234567"}
+    )
+    assert res.status_code == 201

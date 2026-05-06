@@ -205,6 +205,44 @@ async def forgot_password(db: AsyncSession, email: str, admin_only: bool = False
         await _send_email(email, "PaintLearn — 重設密碼", body)
 
 
+async def cleanup_unverified_users(db: AsyncSession, grace_hours: int = 25) -> int:
+    """刪除註冊後 grace_hours 仍未驗證 email 的客戶帳號 + 其驗證 / 重設 token。
+
+    用途：寄信失敗 / 用戶不點驗證連結時，避免 email 被永久佔用。
+    24h 是 verification token TTL，加 1h 緩衝避免邊界情況。
+    只刪 role=customer，不會誤殺 admin。
+    """
+    from sqlalchemy import delete
+
+    cutoff = datetime.now(UTC) - timedelta(hours=grace_hours)
+
+    # 找符合條件的 user ids（避免 ORM relationship 自動 cascade 衝突）
+    result = await db.execute(
+        select(User.id).where(
+            User.role == "customer",
+            User.is_email_verified.is_(False),
+            User.created_at < cutoff,
+        )
+    )
+    user_ids = [row[0] for row in result.all()]
+
+    if not user_ids:
+        return 0
+
+    # 先刪 token（避免 FK 違反），再刪 user
+    await db.execute(
+        delete(EmailVerificationToken).where(EmailVerificationToken.user_id.in_(user_ids))
+    )
+    await db.execute(
+        delete(PasswordResetToken).where(PasswordResetToken.user_id.in_(user_ids))
+    )
+    await db.execute(delete(User).where(User.id.in_(user_ids)))
+    await db.commit()
+
+    logger.info(f"cleanup_unverified_users: deleted {len(user_ids)} stale customer(s)")
+    return len(user_ids)
+
+
 async def reset_password(db: AsyncSession, plain_token: str, new_password: str) -> None:
     hashed = _hash_token(plain_token)
     now = datetime.now(UTC)
