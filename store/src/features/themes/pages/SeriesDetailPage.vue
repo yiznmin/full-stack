@@ -57,12 +57,12 @@ const collageSlots = computed(() => {
   return slots
 })
 
-// 4 種淺米沙裝飾色，給沒有 product 的 cell 用 — 整體偏乳白
+// 4 種極簡裝飾色 — 紙本灰白＋微 taupe，配合 cell 留白美學
 const TONES = [
-  'linear-gradient(135deg, #FCF8EC 0%, #EFE5CF 100%)',
-  'linear-gradient(160deg, #F7F2E5 0%, #DCC8AC 110%)',
-  'linear-gradient(135deg, #EFE5CF 0%, #CDAD86 130%)',
-  'linear-gradient(135deg, #FCF8EC 0%, #ECE0C5 90%)',
+  'linear-gradient(135deg, #FBF8F1 0%, #EBE2D0 110%)',
+  'linear-gradient(160deg, #F6F2EA 0%, #DDD0BB 120%)',
+  'linear-gradient(135deg, #EFE9DA 0%, #C8B79C 140%)',
+  'linear-gradient(135deg, #FBF8F1 0%, #E8DFCD 100%)',
 ]
 function toneFor(idx: number) {
   return TONES[idx % TONES.length]
@@ -270,9 +270,9 @@ const restProducts = computed<ProductBrief[]>(() => {
   padding: 80px 64px;
   background: linear-gradient(
     135deg,
-    #FCF8EC 0%,
-    #F7F2E5 55%,
-    #EFE5CF 130%
+    #FBF8F1 0%,
+    #F6F2EA 55%,
+    #EBE2D0 130%
   );
   border: 1px solid var(--color-line-subtle);
   overflow: hidden;
@@ -405,7 +405,7 @@ const restProducts = computed<ProductBrief[]>(() => {
   gap: 8px;
   align-self: flex-start;
   padding: 10px 20px;
-  background: rgba(247, 242, 229, 0.7);
+  background: rgba(246, 242, 234, 0.7);
   backdrop-filter: blur(4px);
   border: 1px solid var(--color-line-subtle);
   border-radius: var(--radius-xs);
