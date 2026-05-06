@@ -74,7 +74,9 @@ export const router = createRouter({
     { path: '/login', name: 'login', component: LoginPage, meta: { layout: 'auth', guestOnly: true } },
     { path: '/forgot-password', name: 'forgot-password', component: ForgotPasswordPage, meta: { layout: 'auth', guestOnly: true } },
     { path: '/reset-password/:token', name: 'reset-password', component: ResetPasswordPage, meta: { layout: 'auth' } },
+    { path: '/reset-password', name: 'reset-password-query', component: ResetPasswordPage, meta: { layout: 'auth' } },
     { path: '/verify-email/:token', name: 'verify-email', component: VerifyEmailPage, meta: { layout: 'auth' } },
+    { path: '/verify-email', name: 'verify-email-query', component: VerifyEmailPage, meta: { layout: 'auth' } },
 
     // ── 404 catch-all ────────────────────────────────────────────────────
     { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundPage, meta: { layout: 'default' } },

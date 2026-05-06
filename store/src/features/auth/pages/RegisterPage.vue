@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -7,9 +7,14 @@ import { Loader2, Check } from 'lucide-vue-next'
 import * as authApi from '../api'
 import { registerSchema, type RegisterValues } from '../schemas'
 
+const RESEND_COOLDOWN = 60
+
 const apiError = ref<string | null>(null)
 const submitting = ref(false)
 const sentEmail = ref<string | null>(null)
+const resending = ref(false)
+const resendCooldown = ref(0)
+let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
 const { handleSubmit, errors, defineField } = useForm<RegisterValues>({
   validationSchema: toTypedSchema(registerSchema),
@@ -20,12 +25,25 @@ const [name, nameAttrs] = defineField('name')
 const [email, emailAttrs] = defineField('email')
 const [password, passwordAttrs] = defineField('password')
 
+function startCooldown() {
+  resendCooldown.value = RESEND_COOLDOWN
+  if (cooldownTimer) clearInterval(cooldownTimer)
+  cooldownTimer = setInterval(() => {
+    resendCooldown.value -= 1
+    if (resendCooldown.value <= 0 && cooldownTimer) {
+      clearInterval(cooldownTimer)
+      cooldownTimer = null
+    }
+  }, 1000)
+}
+
 const onSubmit = handleSubmit(async (values) => {
   apiError.value = null
   submitting.value = true
   try {
     await authApi.register(values.name, values.email, values.password)
     sentEmail.value = values.email
+    startCooldown() // 第一封信也開始冷卻，避免馬上重送
   } catch (e) {
     const err = e as authApi.ApiError
     if (err.status === 409) {
@@ -38,14 +56,32 @@ const onSubmit = handleSubmit(async (values) => {
   }
 })
 
+const resendDisabled = computed(
+  () => resending.value || resendCooldown.value > 0,
+)
+
+const resendLabel = computed(() => {
+  if (resending.value) return '重新寄送中...'
+  if (resendCooldown.value > 0) return `重新寄送（${resendCooldown.value}s）`
+  return '重新寄送'
+})
+
 async function resend() {
-  if (!sentEmail.value) return
+  if (!sentEmail.value || resendDisabled.value) return
+  resending.value = true
   try {
     await authApi.resendVerification(sentEmail.value)
+    startCooldown()
   } catch {
     // 後端統一回固定訊息，不會壞
+  } finally {
+    resending.value = false
   }
 }
+
+onUnmounted(() => {
+  if (cooldownTimer) clearInterval(cooldownTimer)
+})
 </script>
 
 <template>
@@ -62,7 +98,14 @@ async function resend() {
     </p>
     <p class="hint">
       沒收到信？檢查垃圾郵件夾，或
-      <button type="button" class="link-btn" @click="resend">重新寄送</button>
+      <button
+        type="button"
+        class="link-btn"
+        :disabled="resendDisabled"
+        @click="resend"
+      >
+        {{ resendLabel }}
+      </button>
     </p>
     <RouterLink to="/login" class="btn-secondary">回到登入</RouterLink>
   </div>
@@ -299,8 +342,18 @@ async function resend() {
   cursor: pointer;
   padding: 0;
   border-bottom: 1px solid var(--color-accent);
+  transition: color 150ms, border-color 150ms, opacity 150ms;
 }
-.link-btn:hover { color: var(--color-accent-deep); border-color: var(--color-accent-deep); }
+.link-btn:hover:not(:disabled) {
+  color: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+}
+.link-btn:disabled {
+  color: var(--color-ink-muted);
+  border-color: var(--color-line);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
 
 .alt {
   margin-top: 28px;

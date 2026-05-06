@@ -10,7 +10,14 @@ import { resetPasswordSchema, type ResetPasswordValues } from '../schemas'
 const route = useRoute()
 const router = useRouter()
 
-const token = computed(() => String(route.params.token || ''))
+// 同時支援 path param /reset-password/:token 與 query ?token=（backend 舊版本相容）
+const token = computed(() => {
+  const fromPath = route.params.token
+  if (typeof fromPath === 'string' && fromPath.length > 0) return fromPath
+  const fromQuery = route.query.token
+  if (typeof fromQuery === 'string' && fromQuery.length > 0) return fromQuery
+  return ''
+})
 const tokenValid = computed(() => token.value.length > 0)
 
 const apiError = ref<string | null>(null)

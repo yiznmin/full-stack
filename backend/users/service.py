@@ -111,7 +111,7 @@ async def request_email_change(
     ))
     await db.commit()
 
-    verify_url = f"{settings.frontend_url}/verify-email?token={plain}"
+    verify_url = f"{settings.frontend_url}/verify-email/{plain}"
     body = (
         f"<p>請點擊以下連結驗證您的新 Email：</p>"
         f"<p><a href='{verify_url}'>{verify_url}</a></p>"

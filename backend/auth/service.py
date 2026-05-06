@@ -77,7 +77,7 @@ async def register(db: AsyncSession, name: str, email: str, password: str) -> No
     ))
     await db.commit()
 
-    verify_url = f"{settings.frontend_url}/verify-email?token={plain}"
+    verify_url = f"{settings.frontend_url}/verify-email/{plain}"
     body = (
         f"<p>請點擊以下連結驗證您的帳號：</p>"
         f"<p><a href='{verify_url}'>{verify_url}</a></p>"
@@ -164,7 +164,7 @@ async def resend_verification(db: AsyncSession, email: str) -> None:
         ))
         await db.commit()
 
-        verify_url = f"{settings.frontend_url}/verify-email?token={plain}"
+        verify_url = f"{settings.frontend_url}/verify-email/{plain}"
         body = (
             f"<p>請點擊以下連結驗證您的帳號：</p>"
             f"<p><a href='{verify_url}'>{verify_url}</a></p>"
@@ -196,7 +196,7 @@ async def forgot_password(db: AsyncSession, email: str, admin_only: bool = False
         await db.commit()
 
         base_url = settings.admin_url if admin_only else settings.frontend_url
-        reset_url = f"{base_url}/reset-password?token={plain}"
+        reset_url = f"{base_url}/reset-password/{plain}"
         body = (
             f"<p>請點擊以下連結重設您的密碼：</p>"
             f"<p><a href='{reset_url}'>{reset_url}</a></p>"
