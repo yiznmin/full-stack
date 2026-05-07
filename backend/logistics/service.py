@@ -34,8 +34,15 @@ def _ecpay_base_url() -> str:
 
 # ── 支援的物流子類型 ──────────────────────────────────────────────────────────
 
-# C2C (個人寄件，多數新商家先用這個)
+# 支援的 LogisticsSubType（B2C + C2C 全列）
+# 帳號實際開了哪幾項要看 ECpay 後台「物流選單」
 LOGISTICS_SUB_TYPES = {
+    # B2C（大宗寄倉，月結合約）
+    "UNIMART": "7-Eleven 大宗寄倉",
+    "UNIMARTFREEZE": "7-Eleven 冷凍店取",
+    "FAMI": "全家 大宗寄倉",
+    "HILIFE": "萊爾富 大宗寄倉",
+    # C2C（店到店，個人寄件）
     "UNIMARTC2C": "7-Eleven 交貨便",
     "FAMIC2C": "全家 店到店",
     "HILIFEC2C": "萊爾富 來來貨運",
