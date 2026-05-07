@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { Loader2, MapPin, Store, Plus, Pencil, Trash2, Star } from 'lucide-vue-next'
 import * as profileApi from '../api'
 import type { ShippingProfile, ShippingProfileInput, ShippingType, ApiError } from '../api'
+import ShippingProfileForm from '../components/ShippingProfileForm.vue'
 
 const queryClient = useQueryClient()
 const profilesQuery = useQuery({
@@ -19,44 +20,20 @@ const isEmpty = computed(
 
 const editingId = ref<string | null>(null) // null = no form / 'new' = adding / uuid = editing
 const showForm = computed(() => editingId.value !== null)
-
-const initialInput = (): ShippingProfileInput => ({
-  shipping_type: 'home',
-  recipient_name: '',
-  phone: '',
-  email: null,
-  city: '',
-  district: '',
-  address_detail: '',
-  store_id: null,
-  store_name: null,
-  is_default: false,
+const editingProfile = computed<ShippingProfile | null>(() => {
+  if (!editingId.value || editingId.value === 'new') return null
+  return profiles.value.find((p) => p.id === editingId.value) ?? null
 })
 
-const form = ref<ShippingProfileInput>(initialInput())
 const apiError = ref<string | null>(null)
 
 function openNew() {
   apiError.value = null
-  form.value = initialInput()
-  if (profiles.value.length === 0) form.value.is_default = true
   editingId.value = 'new'
 }
 
 function openEdit(p: ShippingProfile) {
   apiError.value = null
-  form.value = {
-    shipping_type: p.shipping_type,
-    recipient_name: p.recipient_name,
-    phone: p.phone,
-    email: p.email,
-    city: p.city,
-    district: p.district,
-    address_detail: p.address_detail,
-    store_id: p.store_id,
-    store_name: p.store_name,
-    is_default: p.is_default,
-  }
   editingId.value = p.id
 }
 
@@ -100,17 +77,18 @@ const submitting = computed(
   () => createMut.isPending.value || updateMut.isPending.value,
 )
 
-async function submit() {
+async function handleSubmit(data: ShippingProfileInput) {
   apiError.value = null
-  // 同步 store_name 預設值（若為超商）
-  if (form.value.shipping_type !== 'home' && !form.value.store_name) {
-    form.value.store_name = form.value.shipping_type === 'seven_eleven' ? '7-Eleven' : '全家便利商店'
-  }
+  // 第一筆收件資料自動設為預設
+  const payload =
+    editingId.value === 'new' && profiles.value.length === 0
+      ? { ...data, is_default: true }
+      : data
   try {
     if (editingId.value === 'new') {
-      await createMut.mutateAsync(form.value)
+      await createMut.mutateAsync(payload)
     } else if (editingId.value) {
-      await updateMut.mutateAsync({ id: editingId.value, data: form.value })
+      await updateMut.mutateAsync({ id: editingId.value, data: payload })
     }
   } catch (e) {
     const err = e as ApiError
@@ -184,154 +162,13 @@ const SHIPPING_TYPE_LABEL: Record<ShippingType, string> = {
           <button type="button" class="form-cancel" @click="cancelForm">取消</button>
         </div>
 
-        <form class="form" @submit.prevent="submit" novalidate>
-          <!-- 配送方式 -->
-          <div class="field">
-            <label class="label">配送方式</label>
-            <div class="radio-row">
-              <label
-                v-for="t in (['home', 'seven_eleven', 'family_mart'] as ShippingType[])"
-                :key="t"
-                class="radio-card"
-                :class="{ 'radio-active': form.shipping_type === t }"
-              >
-                <input
-                  v-model="form.shipping_type"
-                  type="radio"
-                  :value="t"
-                />
-                <span class="radio-icon">
-                  <MapPin v-if="t === 'home'" :size="14" />
-                  <Store v-else :size="14" />
-                </span>
-                <span class="radio-text">{{ SHIPPING_TYPE_LABEL[t] }}</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- 收件人 + 電話 -->
-          <div class="field-row">
-            <div class="field">
-              <label class="label" for="sp-name">收件人</label>
-              <input
-                id="sp-name"
-                v-model="form.recipient_name"
-                type="text"
-                class="input"
-                required
-                maxlength="30"
-                placeholder="姓名"
-              />
-            </div>
-            <div class="field">
-              <label class="label" for="sp-phone">電話</label>
-              <input
-                id="sp-phone"
-                v-model="form.phone"
-                type="tel"
-                class="input"
-                required
-                pattern="09\d{8}"
-                placeholder="09xxxxxxxx"
-              />
-            </div>
-          </div>
-
-          <!-- 宅配欄位 -->
-          <template v-if="form.shipping_type === 'home'">
-            <div class="field-row">
-              <div class="field">
-                <label class="label" for="sp-city">縣市</label>
-                <input
-                  id="sp-city"
-                  v-model="form.city"
-                  type="text"
-                  class="input"
-                  required
-                  placeholder="例：台北市"
-                />
-              </div>
-              <div class="field">
-                <label class="label" for="sp-district">行政區</label>
-                <input
-                  id="sp-district"
-                  v-model="form.district"
-                  type="text"
-                  class="input"
-                  required
-                  placeholder="例：信義區"
-                />
-              </div>
-            </div>
-            <div class="field">
-              <label class="label" for="sp-addr">地址</label>
-              <input
-                id="sp-addr"
-                v-model="form.address_detail"
-                type="text"
-                class="input"
-                required
-                placeholder="例：松仁路 100 號 5 樓"
-              />
-            </div>
-          </template>
-
-          <!-- 超商欄位 -->
-          <template v-else>
-            <div class="field-row">
-              <div class="field">
-                <label class="label" for="sp-store-id">門市代碼</label>
-                <input
-                  id="sp-store-id"
-                  v-model="form.store_id"
-                  type="text"
-                  class="input"
-                  required
-                  placeholder="例：123456"
-                />
-              </div>
-              <div class="field">
-                <label class="label" for="sp-store-name">門市名稱</label>
-                <input
-                  id="sp-store-name"
-                  v-model="form.store_name"
-                  type="text"
-                  class="input"
-                  required
-                  placeholder="例：信義門市"
-                />
-              </div>
-            </div>
-            <p class="hint">超商選店 popup 即將上線，目前先手動輸入門市代碼。</p>
-          </template>
-
-          <!-- Email + 設為預設 -->
-          <div class="field">
-            <label class="label" for="sp-email">Email（可選）</label>
-            <input
-              id="sp-email"
-              v-model="form.email"
-              type="email"
-              class="input"
-              placeholder="出貨通知用"
-            />
-          </div>
-
-          <label class="check-row">
-            <input v-model="form.is_default" type="checkbox" />
-            <span>設為預設收件資料</span>
-          </label>
-
-          <p v-if="apiError" class="api-err">{{ apiError }}</p>
-
-          <div class="form-foot">
-            <button type="button" class="btn-ghost" @click="cancelForm">取消</button>
-            <button type="submit" class="btn-primary" :disabled="submitting">
-              <Loader2 v-if="submitting" class="spin" />
-              <span>{{ submitting ? '送出中...' : (editingId === 'new' ? '新增' : '儲存') }}</span>
-            </button>
-          </div>
-        </form>
+        <ShippingProfileForm
+          :initial="editingProfile"
+          :submitting="submitting"
+          :error-text="apiError"
+          @submit="handleSubmit"
+          @cancel="cancelForm"
+        />
       </section>
 
       <!-- Empty -->

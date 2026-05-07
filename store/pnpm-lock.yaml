@@ -29,6 +29,9 @@ importers:
       pinia:
         specifier: ^3.0.4
         version: 3.0.4(typescript@6.0.3)(vue@3.5.33(typescript@6.0.3))
+      twzipcode-data:
+        specifier: 2.0.0
+        version: 2.0.0
       vee-validate:
         specifier: ^4.15.1
         version: 4.15.1(vue@3.5.33(typescript@6.0.3))
@@ -446,6 +449,9 @@ packages:
     peerDependencies:
       vue: ^3.5.0
 
+  accept-language@3.0.20:
+    resolution: {integrity: sha512-xklPzRma4aoDEPk0ZfMjeuxB2FP4JBYlAR25OFUqCoOYDjYo6wGwAs49SnTN/MoB5VpnNX9tENfZ+vEIFmHQMQ==}
+
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
@@ -462,6 +468,10 @@ packages:
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
+
+  bcp47@1.1.2:
+    resolution: {integrity: sha512-JnkkL4GUpOvvanH9AZPX38CxhiLsXMBicBY2IAtqiVN8YulGDQybUydWA4W6yAMtw6iShtw+8HEF6cfrTHU+UQ==}
+    engines: {node: '>=0.10'}
 
   birpc@2.9.0:
     resolution: {integrity: sha512-KrayHS5pBi69Xi9JmvoqrIgYGDkD6mcSe/i6YKi3w5kekCLzrX4+nawcXqrj2tIp50Kw/mT/s3p+GVK0A0sKxw==}
@@ -752,6 +762,9 @@ packages:
 
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
+
+  twzipcode-data@2.0.0:
+    resolution: {integrity: sha512-S1689bl9zVUZdsfB4zt8oAy/wWZf58Yu/FtWyU4xphCslV30O1ZBlTOAqsyimlqp8jB9LpWk2GNPhL3ogm9Wzw==}
 
   type-fest@4.41.0:
     resolution: {integrity: sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA==}
@@ -1221,6 +1234,10 @@ snapshots:
     dependencies:
       vue: 3.5.33(typescript@6.0.3)
 
+  accept-language@3.0.20:
+    dependencies:
+      bcp47: 1.1.2
+
   agent-base@7.1.4: {}
 
   alien-signals@3.1.2: {}
@@ -1230,6 +1247,8 @@ snapshots:
   argparse@2.0.1: {}
 
   balanced-match@1.0.2: {}
+
+  bcp47@1.1.2: {}
 
   birpc@2.9.0: {}
 
@@ -1464,6 +1483,10 @@ snapshots:
 
   tslib@2.8.1:
     optional: true
+
+  twzipcode-data@2.0.0:
+    dependencies:
+      accept-language: 3.0.20
 
   type-fest@4.41.0: {}
 
