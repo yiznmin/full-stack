@@ -21,10 +21,16 @@ def _resolve_server_reply_url(request: Request) -> str:
     """callback URL 解析優先序：
       1. settings.ecpay_server_reply_url（明確設定）
       2. request.base_url 推導出 /api/v1/logistics/cvs-callback
+
+    Railway 反向代理 X-Forwarded-Proto 沒被 uvicorn 採信，request.base_url 會回 http；
+    強制改成 https，因為 Railway 公開網域只接 https + ECpay 要求 https callback。
     """
     if settings.ecpay_server_reply_url:
         return settings.ecpay_server_reply_url
     base = str(request.base_url).rstrip("/")
+    # 修正 Railway 內部 http → 公開 https
+    if base.startswith("http://") and "railway.app" in base:
+        base = "https://" + base[len("http://"):]
     return f"{base}/api/v1/logistics/cvs-callback"
 
 
