@@ -28,6 +28,33 @@ def _resolve_server_reply_url(request: Request) -> str:
     return f"{base}/api/v1/logistics/cvs-callback"
 
 
+def _mask(value: str) -> str:
+    """部分遮罩：頭3 + ... + 尾3，少於 8 字元只回長度。"""
+    if not value:
+        return "(empty)"
+    if len(value) < 8:
+        return f"(length={len(value)})"
+    return f"{value[:3]}...{value[-3:]}"
+
+
+@router.get("/debug-config")
+async def debug_config(request: Request) -> dict:
+    """⚠️ 暫時 diagnostic，正式上線前要刪除。
+
+    回傳當前 ECpay 設定狀態（HashKey/HashIV 遮罩），用來驗證 Railway env var 是否正確注入。
+    """
+    return {
+        "merchant_id": settings.ecpay_merchant_id or "(empty)",
+        "hash_key_masked": _mask(settings.ecpay_hash_key),
+        "hash_key_length": len(settings.ecpay_hash_key),
+        "hash_iv_masked": _mask(settings.ecpay_hash_iv),
+        "hash_iv_length": len(settings.ecpay_hash_iv),
+        "env": settings.ecpay_env or "(empty)",
+        "computed_endpoint": service.map_endpoint_url(),
+        "computed_callback_url": _resolve_server_reply_url(request),
+    }
+
+
 @router.get("/cvs-map", response_class=HTMLResponse)
 async def cvs_map_redirect(
     request: Request,

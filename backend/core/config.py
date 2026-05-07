@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     # 預設留空 → service 由 request.base_url 自動推導
     ecpay_server_reply_url: str = ""
 
+    @field_validator(
+        "ecpay_merchant_id", "ecpay_hash_key", "ecpay_hash_iv",
+        "ecpay_env", "ecpay_server_reply_url",
+    )
+    @classmethod
+    def _strip_ecpay(cls, v: str) -> str:
+        """環境變數複製貼上常帶換行 / 前後空白；strip 掉避免簽章對不起來。"""
+        return v.strip() if v else v
+
     class Config:
         env_file = ".env"
 
