@@ -3,6 +3,8 @@ import type { MaybeRefOrGetter } from 'vue'
 import { toValue } from 'vue'
 
 import {
+  adminLockShipping,
+  adminUpdateShipping,
   batchCreateShipments,
   createShipment,
   flagPaymentSubmission,
@@ -20,6 +22,7 @@ import {
   type RefundOrderPayload,
   type UpdateOrderStatusPayload,
   type UpdateProductionProgressPayload,
+  type UpdateShippingPayload,
 } from './api'
 
 export const ORDER_KEYS = {
@@ -106,6 +109,22 @@ export function useUpdateAdminNotesMutation(orderId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: AdminNotesPayload) => updateAdminNotes(orderId, payload),
+    onSuccess: () => invalidateOrder(qc, orderId),
+  })
+}
+
+export function useUpdateShippingMutation(orderId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: UpdateShippingPayload) => adminUpdateShipping(orderId, payload),
+    onSuccess: () => invalidateOrder(qc, orderId),
+  })
+}
+
+export function useLockShippingMutation(orderId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => adminLockShipping(orderId),
     onSuccess: () => invalidateOrder(qc, orderId),
   })
 }

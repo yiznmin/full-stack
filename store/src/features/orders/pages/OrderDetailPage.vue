@@ -7,10 +7,14 @@ import {
   useSubmitPaymentMutation,
   useConfirmReceivedMutation,
   useCancelOrderMutation,
+  useUpdateShippingMutation,
+  usePublicSettingsQuery,
   STATUS_LABEL,
   STATUS_TAB,
 } from '../queries'
-import type { ApiError } from '../api'
+import type { ApiError, UpdateShippingPayload } from '../api'
+import ShippingProfileForm from '@/features/profile/components/ShippingProfileForm.vue'
+import type { ShippingProfileInput } from '@/features/profile/api'
 
 const route = useRoute()
 const orderId = computed(() => String(route.params.id || ''))
@@ -120,6 +124,56 @@ async function confirmReceived() {
     await confirmMut.mutateAsync()
   } catch (e) {
     alert((e as ApiError).detail || '確認失敗')
+  }
+}
+
+// 修改地址
+const showModifyShipping = ref(false)
+const modifyShippingErr = ref<string | null>(null)
+const updateShippingMut = useUpdateShippingMutation(orderId)
+const publicSettingsQuery = usePublicSettingsQuery()
+const adminContactEmail = computed(
+  () => publicSettingsQuery.data.value?.items?.admin_contact_email ?? '',
+)
+
+// 把現有 shipping_snapshot 轉成 ShippingProfileForm 需要的 ShippingProfile 形狀
+const shippingProfileFromOrder = computed(() => {
+  const o = order.value
+  if (!o) return null
+  const s = o.shipping_snapshot
+  return {
+    id: 'order-shipping',
+    shipping_type: o.shipping_type,
+    recipient_name: s.recipient_name ?? '',
+    phone: s.phone ?? '',
+    email: s.notify_email ?? null,
+    city: s.city ?? null,
+    district: s.district ?? null,
+    address_detail: s.address_detail ?? null,
+    store_id: s.store_id ?? null,
+    store_name: s.store_name ?? null,
+    is_default: false,
+  }
+})
+
+async function submitModifyShipping(data: ShippingProfileInput) {
+  modifyShippingErr.value = null
+  // 不允許改 shipping_type — backend 也禁；過濾掉
+  const payload: UpdateShippingPayload = {
+    recipient_name: data.recipient_name,
+    phone: data.phone,
+    email: data.email,
+    city: data.city,
+    district: data.district,
+    address_detail: data.address_detail,
+    store_id: data.store_id,
+    store_name: data.store_name,
+  }
+  try {
+    await updateShippingMut.mutateAsync(payload)
+    showModifyShipping.value = false
+  } catch (e) {
+    modifyShippingErr.value = (e as ApiError).detail || '修改失敗'
   }
 }
 
@@ -305,11 +359,22 @@ function specSummary(spec: Record<string, unknown>): string {
           </section>
 
           <section class="block">
-            <h2 class="block-title">
-              <span class="block-no">03</span>
-              <span class="block-cap">Shipping</span>
-              <span class="block-name">配送</span>
-            </h2>
+            <div class="block-title-row">
+              <h2 class="block-title">
+                <span class="block-no">03</span>
+                <span class="block-cap">Shipping</span>
+                <span class="block-name">配送</span>
+              </h2>
+              <button
+                v-if="order.can_modify_shipping"
+                type="button"
+                class="modify-btn"
+                @click="showModifyShipping = true"
+              >
+                修改
+              </button>
+            </div>
+
             <dl class="kv">
               <div class="kv-row">
                 <dt>方式</dt>
@@ -336,6 +401,16 @@ function specSummary(spec: Record<string, unknown>): string {
                 </dd>
               </div>
             </dl>
+
+            <p
+              v-if="!order.can_modify_shipping && ['paid', 'processing'].includes(order.status) && adminContactEmail"
+              class="modify-hint"
+            >
+              如需修改地址，請寄信至
+              <a :href="`mailto:${adminContactEmail}?subject=修改訂單${order.order_number}的出貨資訊`">
+                {{ adminContactEmail }}
+              </a>
+            </p>
           </section>
 
           <section v-if="order.customer_notes" class="block">
@@ -569,6 +644,35 @@ function specSummary(spec: Record<string, unknown>): string {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
+
+      <!-- 修改地址 Modal -->
+      <Teleport to="body">
+        <Transition name="fade">
+          <div
+            v-if="showModifyShipping && shippingProfileFromOrder"
+            class="modal-overlay"
+            @click.self="showModifyShipping = false"
+          >
+            <div class="modal modify-modal">
+              <div class="modal-head">
+                <h3>修改出貨資訊</h3>
+                <button type="button" class="modal-close" @click="showModifyShipping = false">
+                  <X :size="16" />
+                </button>
+              </div>
+              <p class="modal-hint">付款被管理員確認後將無法自行修改。配送方式不可更動。</p>
+              <ShippingProfileForm
+                :initial="shippingProfileFromOrder"
+                :submitting="updateShippingMut.isPending.value"
+                :error-text="modifyShippingErr"
+                :compact="true"
+                @submit="submitModifyShipping"
+                @cancel="showModifyShipping = false"
+              />
             </div>
           </div>
         </Transition>
@@ -1223,6 +1327,64 @@ function specSummary(spec: Record<string, unknown>): string {
   box-shadow: 0 16px 48px -12px rgba(31, 26, 21, 0.18);
 }
 .modal-narrow { max-width: 420px; }
+.modify-modal { max-width: 560px; }
+.modify-modal .modal-head h3 {
+  font-family: var(--font-cn-serif);
+  font-weight: 300;
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-strong);
+  margin: 0;
+}
+.modal-hint {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-ink-muted);
+  letter-spacing: 0.04em;
+  margin: 12px 0 18px;
+  padding: 10px 12px;
+  background: var(--color-paper-deep);
+  border-radius: var(--radius-xs);
+}
+
+.block-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.modify-btn {
+  background: transparent;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-ink-default);
+  cursor: pointer;
+  transition: border-color 150ms, color 150ms;
+}
+.modify-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.modify-hint {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-ink-muted);
+  letter-spacing: 0.04em;
+  line-height: 1.7;
+  background: var(--color-paper-deep);
+  border-radius: var(--radius-xs);
+}
+.modify-hint a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .modal-head {
   display: flex;
   justify-content: space-between;

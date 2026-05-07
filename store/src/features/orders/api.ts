@@ -87,6 +87,7 @@ export interface OrderDetail {
   shipping_snapshot: {
     recipient_name?: string
     phone?: string
+    notify_email?: string
     city?: string
     district?: string
     address_detail?: string
@@ -94,6 +95,7 @@ export interface OrderDetail {
     store_name?: string
     [k: string]: string | undefined
   }
+  shipping_locked: boolean
   payment_deadline: string | null
   paid_at: string | null
   completed_at: string | null
@@ -108,7 +110,19 @@ export interface OrderDetail {
   payment_submissions: PaymentSubmission[]
   can_cancel: boolean
   can_confirm_received: boolean
+  can_modify_shipping: boolean
   created_at: string
+}
+
+export interface UpdateShippingPayload {
+  recipient_name?: string
+  phone?: string
+  email?: string | null
+  city?: string | null
+  district?: string | null
+  address_detail?: string | null
+  store_id?: string | null
+  store_name?: string | null
 }
 
 // 建單時 payment_info 格式（來自 service.py 的 system_settings）
@@ -215,5 +229,15 @@ export async function cancelOrder(
   return jsonRequest<CancelOrderResponse>(`/orders/${orderId}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ cancel_reason: cancelReason }),
+  })
+}
+
+export async function updateShipping(
+  orderId: string,
+  payload: UpdateShippingPayload,
+): Promise<OrderDetail> {
+  return jsonRequest<OrderDetail>(`/orders/${orderId}/shipping`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
   })
 }

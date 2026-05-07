@@ -11,11 +11,17 @@ import {
   RotateCcw,
   XCircle,
   AlertTriangle,
+  Check,
+  Pencil,
+  X,
 } from 'lucide-vue-next'
 
 import Card from '@/shared/ui/Card.vue'
 import Button from '@/shared/ui/Button.vue'
+import Input from '@/shared/ui/Input.vue'
+import Label from '@/shared/ui/Label.vue'
 import Textarea from '@/shared/ui/Textarea.vue'
+import Dialog from '@/shared/ui/Dialog.vue'
 
 import {
   useOrderQuery,
@@ -25,6 +31,8 @@ import {
   useFlagPaymentSubmissionMutation,
   useRefundOrderMutation,
   useUpdateAdminNotesMutation,
+  useUpdateShippingMutation,
+  useLockShippingMutation,
 } from '../queries'
 import type {
   OrderDetail,
@@ -174,6 +182,57 @@ async function doUpdateProgress(progressId: string, status: 'manufacturing' | 'p
   }
 }
 
+// ── Shipping edit / lock ────────────────────────────────────────────────
+const shippingEditOpen = ref(false)
+const shippingEditErr = ref<string | null>(null)
+const updateShippingMut = useUpdateShippingMutation(orderId.value)
+const lockShippingMut = useLockShippingMutation(orderId.value)
+const shippingForm = ref({
+  recipient_name: '',
+  phone: '',
+  email: '',
+  city: '',
+  district: '',
+  address_detail: '',
+  store_id: '',
+  store_name: '',
+})
+function openShippingEdit() {
+  if (!order.value) return
+  const s = order.value.shipping_snapshot
+  shippingForm.value = {
+    recipient_name: s.recipient_name ?? '',
+    phone: s.phone ?? '',
+    email: s.notify_email ?? '',
+    city: s.city ?? '',
+    district: s.district ?? '',
+    address_detail: s.address_detail ?? '',
+    store_id: s.store_id ?? '',
+    store_name: s.store_name ?? '',
+  }
+  shippingEditErr.value = null
+  shippingEditOpen.value = true
+}
+watch(shippingEditOpen, (open) => { if (open) openShippingEdit() })
+async function submitShippingEdit() {
+  shippingEditErr.value = null
+  try {
+    await updateShippingMut.mutateAsync({
+      recipient_name: shippingForm.value.recipient_name || undefined,
+      phone: shippingForm.value.phone || undefined,
+      email: shippingForm.value.email || null,
+      city: shippingForm.value.city || null,
+      district: shippingForm.value.district || null,
+      address_detail: shippingForm.value.address_detail || null,
+      store_id: shippingForm.value.store_id || null,
+      store_name: shippingForm.value.store_name || null,
+    })
+    shippingEditOpen.value = false
+  } catch (e) {
+    shippingEditErr.value = (e as { message?: string }).message || '修改失敗'
+  }
+}
+
 function appendAdminNote(line: string): string {
   const existing = order.value?.admin_notes ?? ''
   const stamp = `[${new Date().toISOString().slice(0, 10)}] ${line}`
@@ -186,6 +245,20 @@ const canCancel = computed(() => order.value?.status === 'pending_payment')
 const canStartProcessing = computed(() => order.value?.status === 'paid')
 const canCreateShipment = computed(
   () => !!order.value && ['paid', 'processing', 'shipped'].includes(order.value.status),
+)
+// 修改出貨資訊：未鎖定 + 狀態允許
+const canEditShipping = computed(
+  () =>
+    !!order.value &&
+    !order.value.shipping_locked &&
+    ['pending_payment', 'paid', 'processing'].includes(order.value.status),
+)
+// 確認出貨資訊：未鎖定 + paid/processing 狀態
+const canLockShipping = computed(
+  () =>
+    !!order.value &&
+    !order.value.shipping_locked &&
+    ['paid', 'processing'].includes(order.value.status),
 )
 const canStartRefundProcessing = computed(
   () =>
@@ -317,7 +390,13 @@ function copyOrderNumber() {
           <Package :size="14" :stroke-width="1.5" />
           開始備貨
         </Button>
-        <Button v-if="canCreateShipment" variant="secondary" @click="shipmentDialogOpen = true">
+        <Button
+          v-if="canCreateShipment"
+          variant="secondary"
+          :disabled="!order.shipping_locked"
+          :title="order.shipping_locked ? '' : '請先確認出貨資訊'"
+          @click="shipmentDialogOpen = true"
+        >
           <Truck :size="14" :stroke-width="1.5" />
           出貨
         </Button>
@@ -534,7 +613,17 @@ function copyOrderNumber() {
         </Card>
 
         <Card>
-          <h2 class="font-display text-ink-strong text-[16px] leading-[24px] mb-3">收件資訊</h2>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="font-display text-ink-strong text-[16px] leading-[24px]">收件資訊</h2>
+            <span
+              v-if="order.shipping_locked"
+              class="inline-flex items-center px-2 h-[20px] text-[10px] tracking-[0.18em] uppercase rounded-[var(--radius-xs)] bg-state-success/[0.18] text-state-success"
+            >✓ 已確認</span>
+            <span
+              v-else
+              class="inline-flex items-center px-2 h-[20px] text-[10px] tracking-[0.18em] uppercase rounded-[var(--radius-xs)] bg-state-warning/[0.18] text-state-warning"
+            >⚠ 未確認</span>
+          </div>
           <p class="text-[13px] text-ink-strong">{{ order.shipping_snapshot.recipient_name }}</p>
           <p class="text-[12px] text-ink-muted">{{ order.shipping_snapshot.phone }}</p>
           <p class="text-[12px] text-ink-default mt-2">
@@ -550,6 +639,28 @@ function copyOrderNumber() {
             通知 Email：{{ order.shipping_snapshot.notify_email }}
           </p>
           <p v-else class="text-[12px] text-ink-muted mt-2 italic">通知 Email：fallback 用 {{ order.user_email }}</p>
+
+          <!-- 修改 / 確認 actions -->
+          <div v-if="canEditShipping || canLockShipping" class="mt-4 pt-3 border-t border-line-hairline flex items-center gap-2 flex-wrap">
+            <Button v-if="canEditShipping" variant="secondary" @click="shippingEditOpen = true">
+              <Pencil :size="14" :stroke-width="1.5" />
+              修改出貨資訊
+            </Button>
+            <Button
+              v-if="canLockShipping"
+              variant="primary"
+              :disabled="lockShippingMut.isPending.value"
+              @click="lockShippingMut.mutate()"
+            >
+              <Loader2 v-if="lockShippingMut.isPending.value" :size="14" :stroke-width="1.5" class="animate-spin" />
+              <Check v-else :size="14" :stroke-width="1.5" />
+              確認出貨資訊
+            </Button>
+          </div>
+          <p
+            v-if="order.shipping_locked"
+            class="mt-3 text-[11px] text-ink-muted"
+          >已鎖定 — 出貨資訊無法再修改（包裹已建單後永久鎖死）</p>
         </Card>
 
         <Card>
@@ -618,5 +729,81 @@ function copyOrderNumber() {
       @close="refundFinalizeOpen = false"
       @confirm="(p) => doRefund(p)"
     />
+
+    <!-- 修改出貨資訊 Dialog -->
+    <Dialog
+      :open="shippingEditOpen"
+      title="修改出貨資訊"
+      @close="shippingEditOpen = false"
+    >
+      <div class="space-y-3">
+        <p class="text-[12px] text-ink-muted leading-[1.7]">
+          配送方式（{{ shippingTypeLabel[order.shipping_type] }}）不可修改 — 若需要切換請取消訂單後重下。
+        </p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <Label>收件人</Label>
+            <Input v-model="shippingForm.recipient_name" />
+          </div>
+          <div>
+            <Label>電話 (09xxxxxxxx)</Label>
+            <Input v-model="shippingForm.phone" />
+          </div>
+        </div>
+        <div>
+          <Label>通知 Email</Label>
+          <Input v-model="shippingForm.email" type="email" />
+        </div>
+
+        <template v-if="order.shipping_type === 'home'">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <Label>縣市</Label>
+              <Input v-model="shippingForm.city" placeholder="台北市" />
+            </div>
+            <div>
+              <Label>行政區</Label>
+              <Input v-model="shippingForm.district" placeholder="信義區" />
+            </div>
+          </div>
+          <div>
+            <Label>地址</Label>
+            <Input v-model="shippingForm.address_detail" />
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <Label>門市代碼</Label>
+              <Input v-model="shippingForm.store_id" />
+            </div>
+            <div>
+              <Label>門市名稱</Label>
+              <Input v-model="shippingForm.store_name" />
+            </div>
+          </div>
+        </template>
+
+        <p
+          v-if="shippingEditErr"
+          class="px-3 py-2 border border-state-danger/40 bg-[var(--color-state-danger)]/[0.06] text-state-danger text-[12px] rounded-[var(--radius-xs)]"
+        >{{ shippingEditErr }}</p>
+      </div>
+
+      <template #footer>
+        <div class="flex items-center justify-end gap-2">
+          <Button variant="secondary" @click="shippingEditOpen = false">取消</Button>
+          <Button
+            variant="primary"
+            :disabled="updateShippingMut.isPending.value"
+            @click="submitShippingEdit"
+          >
+            <Loader2 v-if="updateShippingMut.isPending.value" :size="14" :stroke-width="1.5" class="animate-spin" />
+            儲存
+          </Button>
+        </div>
+      </template>
+    </Dialog>
   </template>
 </template>

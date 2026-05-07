@@ -164,6 +164,7 @@ export interface OrderDetail {
   shipping_type: ShippingType
   shipping_preference: ShippingPreference | null
   shipping_snapshot: ShippingSnapshot
+  shipping_locked: boolean
   payment_deadline: string | null
   paid_at: string | null
   completed_at: string | null
@@ -282,6 +283,30 @@ export function batchCreateShipments(payload: BatchCreateShipmentPayload) {
       body: JSON.stringify(payload),
     },
   )
+}
+
+export interface UpdateShippingPayload {
+  recipient_name?: string
+  phone?: string
+  email?: string | null
+  city?: string | null
+  district?: string | null
+  address_detail?: string | null
+  store_id?: string | null
+  store_name?: string | null
+}
+
+export function adminUpdateShipping(orderId: string, payload: UpdateShippingPayload) {
+  return request<OrderDetail>(`/admin/orders/${orderId}/shipping`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function adminLockShipping(orderId: string) {
+  return request<OrderDetail>(`/admin/orders/${orderId}/lock-shipping`, {
+    method: 'POST',
+  })
 }
 
 export function updateProductionProgress(

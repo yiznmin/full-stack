@@ -62,6 +62,31 @@ export function useCancelOrderMutation(orderId: MaybeRefOrGetter<string>) {
   })
 }
 
+export function useUpdateShippingMutation(orderId: MaybeRefOrGetter<string>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: ordersApi.UpdateShippingPayload) =>
+      ordersApi.updateShipping(toValue(orderId), payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['order', toValue(orderId)] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+    },
+  })
+}
+
+// 從後端公開 system_settings 拿 admin_contact_email（給「請寄信至」hint 用）
+export function usePublicSettingsQuery() {
+  return useQuery({
+    queryKey: ['public-settings'] as const,
+    queryFn: async () => {
+      const res = await fetch('/api/v1/system-settings/public')
+      if (!res.ok) return { items: {} as Record<string, string> }
+      return res.json() as Promise<{ items: Record<string, string> }>
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 // 訂單狀態 → 中文 + tab 分類
 // 對應 backend OrderStatusEnum 完整 10 個狀態
 export const STATUS_LABEL: Record<string, string> = {
