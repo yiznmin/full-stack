@@ -288,8 +288,8 @@ def build_create_shipment_form(
         if len(receiver_store_id) > 9:  # /8809/ 寫 6，但 Map 給 9 → 取寬鬆
             raise ValueError("門市代碼過長")
     else:  # HOME
-        if not receiver_zip_code or not _re.fullmatch(r"\d{3,5}", receiver_zip_code):
-            raise ValueError("宅配必填 3-5 碼郵遞區號")
+        if not receiver_zip_code or not _re.fullmatch(r"\d{3,6}", receiver_zip_code):
+            raise ValueError("宅配必填 3-6 碼郵遞區號")
         if not receiver_address or len(receiver_address) <= 6:
             raise ValueError("宅配地址必填且需 > 6 字")
         if temperature not in ("0001", "0002", "0003"):
