@@ -10,12 +10,23 @@
 
 | 階段 | 範圍 | 對應 ECpay API | 狀態 |
 |---|---|---|---|
-| **Day 1** | 超商選店（電子地圖） | [/8795/](https://developers.ecpay.com.tw/8795/) | ✅ Code 完成 / ⏳ 等 user 沙箱測試 |
+| **Day 1** | 超商選店（電子地圖） | [/8795/](https://developers.ecpay.com.tw/8795/) | ✅ **完成** — production 真實地圖通了 |
 | **Day 2** | 物流訂單建立（CVS + 宅配） | [/7414/](https://developers.ecpay.com.tw/7414/) + 宅配 [/2870/] | ⏳ Pending |
 | **Day 3** | 物流狀態通知 webhook | [/10127/](https://developers.ecpay.com.tw/10127/) | ⏳ Pending |
-| **Day 4** | 託運單列印 + edge cases + production 切換 | [/7438/]、[/8477/] | ⏳ Pending |
+| **Day 4** | 託運單列印 + edge cases | [/7438/]、[/8477/] | ⏳ Pending |
 
-**規則：** 每階段完成後必須 commit + push + user 在 sandbox 測通才往下；不自動連跑。
+**規則：** 每階段完成後必須 commit + push + user 實測通才往下；不自動連跑。
+
+### 帳號類型確認（2026-05-07）
+
+User 帳號 `3497730` 經 `probe-subtypes` API 實測確認為 **C2C**：
+- ✅ UNIMARTC2C / FAMIC2C / HILIFEC2C / OKMARTC2C
+- ❌ UNIMART / FAMI / UNIMARTFREEZE / HILIFE
+
+**對 Day 2 的影響（重要）：**
+- C2C **不用測標** → Day 2 建單可以直接動工，不卡 3-7 天等待
+- C2C 按單收費，不用月結合約
+- Picker 預設 SubType = `UNIMARTC2C` / `FAMIC2C`
 
 ---
 
@@ -276,5 +287,13 @@ ECpay 回一個 HTML 表單，用瀏覽器打開可以列印託運單。
 
 1. **預計每天訂單量？** 影響 Day 2 是否要做「批次建單」（一次建 10 筆 vs 一筆一筆建）
 2. **宅配走 ECpay 還是自己叫黑貓？** 影響 Day 2 是否要做宅配建單 API
-3. **C2C vs B2C：** 用戶剛申請的 ECpay 帳號通常只開 C2C（個人寄件、按單收費）；要切 B2C（大宗、月結合約）需另外申請。Day 2 預設用 C2C。
+3. ~~C2C vs B2C~~ ✅ **已確認 C2C**（2026-05-07 經 probe-subtypes 實測）
 4. **重印託運單的場景？** 客戶要求重新列印貼紙還是只是 admin 內部備份？影響 Day 4 是否需要做版本控管。
+
+---
+
+## 9. 已知 TODO（正式上線前清理）
+
+- 🧹 **刪 `/api/v1/logistics/debug-config` endpoint**（router.py 內）— diagnostic 工具，正式環境會洩漏 HashKey 頭尾字元
+- 🧹 **刪 `/api/v1/logistics/probe-subtypes` endpoint** — 同上，是過渡期診斷工具
+- 🧹 **生產環境替換 `paint-web-production.up.railway.app` → 正式 yiimui 網域**（如果你之後綁自家網域）
