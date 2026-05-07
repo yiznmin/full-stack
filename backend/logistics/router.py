@@ -7,13 +7,16 @@
       → 接 ECpay 回傳，驗章後 postMessage 給 opener，close 自己
 """
 import asyncio
-from urllib.parse import urljoin
+from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
+from core.database import get_db
+from dependencies.auth import require_admin
 from logistics import service
 
 router = APIRouter(prefix="/logistics", tags=["logistics"])
@@ -116,25 +119,21 @@ async def probe_subtypes(request: Request) -> dict:
 
 @router.post("/debug-create-shipment/{order_id}")
 async def debug_create_shipment(
-    order_id: str,
+    order_id: UUID,
     request: Request,
-    db=__import__("fastapi").Depends(__import__("core.database", fromlist=["get_db"]).get_db),
-    _admin=__import__("fastapi").Depends(
-        __import__("dependencies.auth", fromlist=["require_admin"]).require_admin
-    ),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_admin),
 ) -> dict:
     """⚠️ TEMP debug — 把 create_shipment 失敗的完整 traceback 回給 client。
-
     正式上線前要刪除。Admin only。
     """
-    import traceback
-    from uuid import UUID
+    import traceback as _tb
     from orders import service as orders_service
 
     try:
         shipment = await orders_service.create_shipment(
-            db, UUID(order_id), "fulfilled",
-            server_reply_url=f"{str(request.base_url).rstrip('/').replace('http://', 'https://')}/api/v1/logistics/status-callback",
+            db, order_id, "fulfilled",
+            server_reply_url=_resolve_server_reply_url(request).replace("/cvs-callback", "/status-callback"),
         )
         return {"ok": True, "tracking_number": shipment.tracking_number}
     except Exception as e:
@@ -142,7 +141,7 @@ async def debug_create_shipment(
             "ok": False,
             "error_type": type(e).__name__,
             "error_msg": str(e),
-            "traceback": traceback.format_exc(),
+            "traceback": _tb.format_exc(),
         }
 
 
