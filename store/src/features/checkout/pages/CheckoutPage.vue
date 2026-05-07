@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
-import { useQuery } from '@tanstack/vue-query'
-import { Loader2, MapPin, Store, Tag, Check } from 'lucide-vue-next'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { Loader2, MapPin, Store, Tag, Check, Plus } from 'lucide-vue-next'
 import {
   useCartQuery,
   useCheckoutPreviewQuery,
   useCreateOrderMutation,
 } from '@/features/cart/queries'
 import * as profileApi from '@/features/profile/api'
+import ShippingProfileForm from '@/features/profile/components/ShippingProfileForm.vue'
+import type { ShippingProfileInput } from '@/features/profile/api'
 import type { ShippingType, ShippingPreference, ApiError } from '@/features/cart/api'
 
 const router = useRouter()
+const queryClient = useQueryClient()
 
 const cartQuery = useCartQuery()
 const cartItems = computed(() => cartQuery.data.value?.items ?? [])
@@ -24,6 +27,38 @@ const shippingQuery = useQuery({
 })
 const profiles = computed(() => shippingQuery.data.value ?? [])
 const selectedProfileId = ref<string | null>(null)
+
+// Inline 新增收件資料
+const showAddForm = ref(false)
+const addError = ref<string | null>(null)
+const createProfileMut = useMutation({
+  mutationFn: profileApi.createShippingProfile,
+  onSuccess: (created) => {
+    queryClient.invalidateQueries({ queryKey: ['shipping-profiles'] })
+    selectedProfileId.value = created.id
+    showAddForm.value = false
+    addError.value = null
+  },
+})
+
+async function submitNewProfile(data: ShippingProfileInput) {
+  addError.value = null
+  try {
+    await createProfileMut.mutateAsync(data)
+  } catch (e) {
+    const err = e as ApiError
+    addError.value = err.detail || '新增失敗，請稍後再試'
+  }
+}
+
+function startAddProfile() {
+  addError.value = null
+  showAddForm.value = true
+}
+function cancelAddProfile() {
+  showAddForm.value = false
+  addError.value = null
+}
 
 // 自動選預設 profile
 watch(profiles, (list) => {
@@ -75,15 +110,23 @@ const preview = computed(() => previewQuery.data.value)
 const createMut = useCreateOrderMutation()
 const apiError = ref<string | null>(null)
 
+// 退款政策同意（必勾才能送出）
+const agreeRefundPolicy = ref(false)
+
 const canPlaceOrder = computed(() =>
   cartItems.value.length > 0 &&
   !!selectedProfileId.value &&
+  agreeRefundPolicy.value &&
   !createMut.isPending.value,
 )
 
 async function placeOrder() {
   if (!selectedProfileId.value) {
     apiError.value = '請選擇收件資料'
+    return
+  }
+  if (!agreeRefundPolicy.value) {
+    apiError.value = '請先閱讀並同意退款政策'
     return
   }
   apiError.value = null
@@ -144,39 +187,66 @@ function profileSummary(p: profileApi.ShippingProfile): string {
             <Loader2 :size="16" />
           </div>
 
-          <div v-else-if="profiles.length === 0" class="block-empty">
-            <p>尚未有收件資料。請先到會員中心新增。</p>
-            <RouterLink to="/profile/shipping" class="block-link">前往會員中心 →</RouterLink>
-          </div>
-
-          <ul v-else class="profile-list">
-            <li v-for="p in profiles" :key="p.id">
-              <button
-                type="button"
-                class="profile-card"
-                :class="{ 'profile-active': selectedProfileId === p.id }"
-                @click="selectedProfileId = p.id"
-              >
-                <span class="profile-icon">
-                  <MapPin v-if="p.shipping_type === 'home'" :size="14" />
-                  <Store v-else :size="14" />
-                </span>
-                <!-- shipping_type 顯示用：home / 7-Eleven / 全家 -->
-
-                <div class="profile-info">
-                  <div class="profile-name">
-                    {{ p.recipient_name }}
-                    <span v-if="p.is_default" class="profile-default">預設</span>
-                  </div>
-                  <div class="profile-meta">{{ p.phone }}</div>
-                  <div class="profile-addr">{{ profileSummary(p) }}</div>
-                </div>
-                <span v-if="selectedProfileId === p.id" class="profile-check">
-                  <Check :size="14" />
-                </span>
+          <template v-else>
+            <div v-if="profiles.length === 0 && !showAddForm" class="block-empty">
+              <p>尚未有收件資料。</p>
+              <button type="button" class="add-profile-btn" @click="startAddProfile">
+                <Plus :size="14" />
+                <span>新增收件資料</span>
               </button>
-            </li>
-          </ul>
+            </div>
+
+            <ul v-if="profiles.length > 0" class="profile-list">
+              <li v-for="p in profiles" :key="p.id">
+                <button
+                  type="button"
+                  class="profile-card"
+                  :class="{ 'profile-active': selectedProfileId === p.id }"
+                  @click="selectedProfileId = p.id"
+                >
+                  <span class="profile-icon">
+                    <MapPin v-if="p.shipping_type === 'home'" :size="14" />
+                    <Store v-else :size="14" />
+                  </span>
+
+                  <div class="profile-info">
+                    <div class="profile-name">
+                      {{ p.recipient_name }}
+                      <span v-if="p.is_default" class="profile-default">預設</span>
+                    </div>
+                    <div class="profile-meta">{{ p.phone }}</div>
+                    <div class="profile-addr">{{ profileSummary(p) }}</div>
+                  </div>
+                  <span v-if="selectedProfileId === p.id" class="profile-check">
+                    <Check :size="14" />
+                  </span>
+                </button>
+              </li>
+            </ul>
+
+            <button
+              v-if="profiles.length > 0 && !showAddForm"
+              type="button"
+              class="add-profile-link"
+              @click="startAddProfile"
+            >
+              <Plus :size="13" />
+              <span>新增其他收件資料</span>
+            </button>
+
+            <div v-if="showAddForm" class="inline-form">
+              <div class="inline-form-head">
+                <h3 class="inline-form-title">新增收件資料</h3>
+              </div>
+              <ShippingProfileForm
+                :submitting="createProfileMut.isPending.value"
+                :error-text="addError"
+                :compact="true"
+                @submit="submitNewProfile"
+                @cancel="cancelAddProfile"
+              />
+            </div>
+          </template>
         </section>
 
         <section v-if="preview?.has_preorder" class="block">
@@ -287,6 +357,14 @@ function profileSummary(p: profileApi.ShippingProfile): string {
             <span class="total-value">NT$ {{ (preview?.total ?? cartSubtotal).toLocaleString() }}</span>
           </div>
 
+          <label class="agree-row" :class="{ 'agree-row-active': agreeRefundPolicy }">
+            <input v-model="agreeRefundPolicy" type="checkbox" />
+            <span class="agree-text">
+              我已閱讀並同意
+              <RouterLink to="/refund-policy" target="_blank" class="agree-link">《退款政策》</RouterLink>
+            </span>
+          </label>
+
           <p v-if="apiError" class="api-err">{{ apiError }}</p>
 
           <button
@@ -299,8 +377,8 @@ function profileSummary(p: profileApi.ShippingProfile): string {
             <span>{{ createMut.isPending.value ? '建立訂單中...' : '送出訂單' }}</span>
           </button>
 
-          <p class="legal">
-            送出訂單即同意《<RouterLink to="/refund-policy">退款政策</RouterLink>》。
+          <p v-if="!agreeRefundPolicy" class="legal-hint">
+            請先勾選同意退款政策才能送出訂單。
           </p>
         </div>
       </aside>
@@ -441,6 +519,65 @@ function profileSummary(p: profileApi.ShippingProfile): string {
   text-decoration: none;
 }
 .block-link:hover { color: var(--color-accent-deep); }
+
+.add-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--color-ink-strong);
+  color: var(--color-paper-canvas);
+  border: 1px solid var(--color-ink-strong);
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 200ms, border-color 200ms;
+}
+.add-profile-btn:hover {
+  background: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+}
+.add-profile-btn :deep(svg) { stroke: currentColor; stroke-width: 1.75; fill: none; }
+
+.add-profile-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 0;
+  background: transparent;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  cursor: pointer;
+  transition: color 150ms;
+}
+.add-profile-link:hover { color: var(--color-accent-deep); }
+.add-profile-link :deep(svg) { stroke: currentColor; stroke-width: 1.75; fill: none; }
+
+.inline-form {
+  margin-top: 18px;
+  padding: 24px;
+  background: var(--color-paper-surface);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: var(--radius-sm);
+}
+.inline-form-head {
+  margin-bottom: 18px;
+}
+.inline-form-title {
+  font-family: var(--font-cn-serif);
+  font-weight: 300;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-strong);
+  margin: 0;
+}
 
 .profile-list {
   list-style: none;
@@ -777,15 +914,50 @@ function profileSummary(p: profileApi.ShippingProfile): string {
 }
 .place-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-.legal {
+.agree-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: var(--color-paper-deep);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: border-color 150ms, background 150ms;
+}
+.agree-row:hover { border-color: var(--color-accent-soft); }
+.agree-row-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+.agree-row input {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+.agree-text {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-ink-default);
+  letter-spacing: 0.04em;
+}
+.agree-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.agree-link:hover { color: var(--color-accent-deep); }
+
+.legal-hint {
   font-size: 11px;
   color: var(--color-ink-muted);
   letter-spacing: 0.04em;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   text-align: center;
 }
-.legal a { color: var(--color-accent); text-decoration: none; }
-.legal a:hover { color: var(--color-accent-deep); }
 
 @media (max-width: 1023px) {
   .page { padding: 40px 32px 64px; }
