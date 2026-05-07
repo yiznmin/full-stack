@@ -182,6 +182,10 @@ class Shipment(Base):
     # CVS C2C 寄件用：用戶到 7-11 ibon / 全家 FamiPort 機台輸入這兩個值才能印貼紙
     cvs_payment_no = Column(String, nullable=True)       # 寄貨編號（CVSPaymentNo）
     cvs_validation_no = Column(String, nullable=True)    # 驗證碼（CVSValidationNo，僅 7-Eleven C2C 有）
+    # ECpay webhook 推送的最新狀態（Day 3 追蹤）
+    last_rtn_code = Column(Integer, nullable=True)              # 最後收到的 RtnCode (e.g. 2067 = 客戶已取貨)
+    last_rtn_msg = Column(String, nullable=True)                # 最後狀態說明（中文）
+    last_status_at = Column(TIMESTAMP(timezone=True), nullable=True)  # ECpay UpdateStatusDate
     shipped_at = Column(TIMESTAMP(timezone=True), nullable=True)
     delivered_at = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

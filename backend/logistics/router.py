@@ -7,6 +7,7 @@
       → 接 ECpay 回傳，驗章後 postMessage 給 opener，close 自己
 """
 import asyncio
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -409,3 +410,124 @@ def _html_escape(s: str) -> str:
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+
+
+# ── Day 3：物流狀態通知 Webhook ─────────────────────────────────────────────
+
+@router.post("/status-callback")
+async def status_callback(request: Request):
+    """ECpay 物流狀態通知 webhook (/7420/)。
+
+    全部物流類型（CVS + HOME）共用此 endpoint。
+    依 LogisticsType + RtnCode 對映至 Shipment.status，必回 "1|OK" 給 ECpay。
+
+    來源：docs/integration_specs/ecpay_status_tracking.md
+    """
+    from urllib.parse import parse_qsl
+    from sqlalchemy.ext.asyncio import AsyncSession  # noqa
+    from core.database import get_db as _get_db
+    from sqlalchemy import select as _select
+    from orders.models import Shipment, Order, OrderStatusEnum, ShipmentStatusEnum
+    import logging
+
+    log = logging.getLogger(__name__)
+
+    raw_body = await request.body()
+    decoded = raw_body.decode("utf-8", errors="replace")
+    params = dict(parse_qsl(decoded, keep_blank_values=True))
+
+    log.info(f"[status-callback] received: {params}")
+
+    # 1. 簽章驗證
+    received_mac = params.get("CheckMacValue", "")
+    rest = {k: v for k, v in params.items() if k != "CheckMacValue"}
+    expected_mac = service.calculate_check_mac_value(rest)
+    if not received_mac or received_mac.upper() != expected_mac:
+        log.warning(
+            f"[status-callback] MAC verify failed: received={received_mac} expected={expected_mac}"
+        )
+        # 故意仍回 1|OK：不暴露失敗細節，避免 ECpay 重發 / 攻擊者試探
+        return _plain_text_response("1|OK")
+
+    # 2. 找對應的 Shipment
+    all_pay_id = params.get("AllPayLogisticsID", "")
+    if not all_pay_id:
+        log.warning("[status-callback] missing AllPayLogisticsID")
+        return _plain_text_response("1|OK")
+
+    rtn_code_str = params.get("RtnCode", "0")
+    try:
+        rtn_code = int(rtn_code_str)
+    except ValueError:
+        rtn_code = 0
+    rtn_msg = params.get("RtnMsg", "")
+    update_status_date_str = params.get("UpdateStatusDate", "")
+    update_status_date = service.parse_ecpay_datetime(update_status_date_str)
+
+    # 3. 進 DB 更新（用 dependency injection 拿 db）
+    async for db in _get_db():
+        try:
+            ship_result = await db.execute(
+                _select(Shipment).where(Shipment.ecpay_logistics_id == all_pay_id).with_for_update()
+            )
+            shipment = ship_result.scalar_one_or_none()
+            if shipment is None:
+                log.warning(f"[status-callback] no Shipment found for AllPayLogisticsID={all_pay_id}")
+                return _plain_text_response("1|OK")
+
+            # 4. Idempotency：last_status_at >= 新的 UpdateStatusDate → 跳過
+            if (
+                update_status_date
+                and shipment.last_status_at
+                and shipment.last_status_at >= update_status_date
+            ):
+                log.info(
+                    f"[status-callback] skip stale update: shipment={shipment.id} "
+                    f"existing_at={shipment.last_status_at} new_at={update_status_date}"
+                )
+                return _plain_text_response("1|OK")
+
+            # 5. 更新狀態欄位
+            shipment.last_rtn_code = rtn_code
+            shipment.last_rtn_msg = rtn_msg
+            if update_status_date:
+                shipment.last_status_at = update_status_date
+
+            # 6. 「已送達 / 客戶取貨」→ Shipment.status='delivered'
+            if service.is_delivered_status(rtn_code, rtn_msg):
+                if shipment.status != ShipmentStatusEnum.delivered:
+                    shipment.status = ShipmentStatusEnum.delivered
+                    shipment.delivered_at = update_status_date or datetime.now(__import__("datetime").timezone.utc)
+                    log.info(f"[status-callback] shipment {shipment.id} marked delivered")
+
+                # 7. 該 Order 所有 Shipment 都 delivered → Order.status='completed'
+                order_result = await db.execute(
+                    _select(Order).where(Order.id == shipment.order_id).with_for_update()
+                )
+                order = order_result.scalar_one_or_none()
+                if order is not None:
+                    all_ships_result = await db.execute(
+                        _select(Shipment).where(Shipment.order_id == order.id)
+                    )
+                    all_ships = list(all_ships_result.scalars().all())
+                    if all_ships and all(
+                        s.status == ShipmentStatusEnum.delivered for s in all_ships
+                    ):
+                        if order.status != OrderStatusEnum.completed:
+                            order.status = OrderStatusEnum.completed
+                            from datetime import datetime as _dt, timezone as _tz
+                            order.completed_at = _dt.now(_tz.utc)
+                            log.info(f"[status-callback] order {order.id} auto-completed")
+
+            await db.commit()
+        except Exception as e:
+            log.exception(f"[status-callback] error processing: {e}")
+            await db.rollback()
+
+    return _plain_text_response("1|OK")
+
+
+def _plain_text_response(text_content: str):
+    """ECpay webhook 必回純字串（不含 HTML/JSON 結構）."""
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content=text_content)

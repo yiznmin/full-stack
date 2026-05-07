@@ -374,6 +374,24 @@ async def batch_create_shipments(
     )
 
 
+@router.post(
+    "/admin/orders/{order_id}/refresh-shipment-status",
+    response_model=AdminOrderDetailResponse,
+)
+async def admin_refresh_shipment_status(
+    order_id: UUID,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """admin 主動向 ECpay 拉所有 Shipment 的最新狀態（webhook 掉包補救）.
+
+    對該 Order 的每筆 Shipment 各打一次 ECpay /7418/，比對 LogisticsStatus，
+    若有更新就同步寫 DB。完成後回最新訂單詳情。
+    """
+    await service.refresh_shipment_status(db, order_id)
+    return await service.admin_get_order(db, order_id)
+
+
 @router.patch(
     "/admin/orders/{order_id}/production-progress/{progress_id}",
     response_model=ProductionProgressResponse,

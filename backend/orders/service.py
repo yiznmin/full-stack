@@ -723,6 +723,12 @@ async def _build_order_detail(db: AsyncSession, order: Order, is_admin: bool = F
                 "shipment_type": s.shipment_type,
                 "status": s.status,
                 "tracking_number": s.tracking_number,
+                "ecpay_logistics_id": s.ecpay_logistics_id,
+                "cvs_payment_no": s.cvs_payment_no,
+                "cvs_validation_no": s.cvs_validation_no,
+                "last_rtn_code": s.last_rtn_code,
+                "last_rtn_msg": s.last_rtn_msg,
+                "last_status_at": s.last_status_at,
                 "shipped_at": s.shipped_at,
                 "delivered_at": s.delivered_at,
             }
@@ -1285,6 +1291,8 @@ async def create_shipment(
         status=ShipmentStatusEnum.shipped,
         tracking_number=tracking_number,
         ecpay_logistics_id=ecpay_logistics_id,
+        cvs_payment_no=ecpay_result.get("cvs_payment_no"),
+        cvs_validation_no=ecpay_result.get("cvs_validation_no"),
         shipped_at=now,
     )
     db.add(shipment)
@@ -1330,6 +1338,80 @@ async def create_shipment(
     await db.commit()
     await db.refresh(shipment)
     return shipment
+
+
+async def refresh_shipment_status(db: AsyncSession, order_id: UUID) -> None:
+    """對該 Order 的每筆 Shipment 主動查 ECpay /7418/，比對狀態並同步。
+
+    用於 webhook 掉包補救（admin 點「重新查詢狀態」按鈕）。
+    """
+    from logistics import service as logistics_service
+
+    result = await db.execute(
+        select(Shipment).where(Shipment.order_id == order_id)
+    )
+    shipments = list(result.scalars().all())
+    if not shipments:
+        raise NotFoundError("該訂單沒有物流訂單可查詢")
+
+    for ship in shipments:
+        if not ship.ecpay_logistics_id:
+            logger.info(f"[refresh-shipment] skip {ship.id} — no ecpay_logistics_id")
+            continue
+        try:
+            raw = await logistics_service.query_logistics_trade(
+                all_pay_logistics_id=ship.ecpay_logistics_id,
+            )
+        except Exception as e:
+            logger.warning(f"[refresh-shipment] query failed for {ship.id}: {e}")
+            continue
+
+        # ECpay /7418/ 回的格式不同於 webhook，狀態欄位是 LogisticsStatus
+        try:
+            new_rtn_code = int(raw.get("LogisticsStatus") or raw.get("RtnCode") or "0")
+        except ValueError:
+            new_rtn_code = 0
+        new_rtn_msg = raw.get("RtnMsg") or raw.get("LogisticsStatus") or ""
+        new_status_at = logistics_service.parse_ecpay_datetime(
+            raw.get("UpdateStatusDate") or ""
+        )
+
+        # 比對：last_status_at >= new_status_at 跳過（已是最新）
+        if (
+            new_status_at
+            and ship.last_status_at
+            and ship.last_status_at >= new_status_at
+        ):
+            continue
+
+        ship.last_rtn_code = new_rtn_code
+        ship.last_rtn_msg = new_rtn_msg
+        if new_status_at:
+            ship.last_status_at = new_status_at
+
+        if logistics_service.is_delivered_status(new_rtn_code, new_rtn_msg):
+            if ship.status != ShipmentStatusEnum.delivered:
+                ship.status = ShipmentStatusEnum.delivered
+                ship.delivered_at = new_status_at or datetime.now(UTC)
+
+    # 完成後檢查 Order.status 是否要推進到 completed
+    order_result = await db.execute(
+        select(Order).where(Order.id == order_id).with_for_update()
+    )
+    order = order_result.scalar_one_or_none()
+    if order is not None:
+        all_ships_result = await db.execute(
+            select(Shipment).where(Shipment.order_id == order_id)
+        )
+        all_ships = list(all_ships_result.scalars().all())
+        if all_ships and all(
+            s.status == ShipmentStatusEnum.delivered for s in all_ships
+        ):
+            if order.status != OrderStatusEnum.completed:
+                order.status = OrderStatusEnum.completed
+                order.completed_at = datetime.now(UTC)
+
+    await db.commit()
 
 
 async def batch_create_shipments(

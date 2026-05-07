@@ -63,6 +63,12 @@ class ShipmentResponse(BaseModel):
     shipment_type: str
     status: str
     tracking_number: str | None
+    ecpay_logistics_id: str | None = None
+    cvs_payment_no: str | None = None        # 寄貨編號（CVS）
+    cvs_validation_no: str | None = None     # 驗證碼（7-Eleven C2C）
+    last_rtn_code: int | None = None         # 最後收到的 ECpay 狀態碼
+    last_rtn_msg: str | None = None          # 最後狀態文字
+    last_status_at: datetime | None = None   # 最後狀態時間
     shipped_at: datetime | None
     delivered_at: datetime | None
 

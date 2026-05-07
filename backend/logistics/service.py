@@ -191,6 +191,152 @@ def truncate_response_field(value: str, max_len: int) -> str:
     return value
 
 
+# ── 物流狀態代碼映射（Day 3 webhook）────────────────────────────────────────
+# 來源：docs/integration_specs/ecpay_status_tracking.md §2.5
+# 「客戶取貨 / 已送達」是我們系統決定 Shipment.status='delivered' 的關鍵狀態。
+
+# 確定的「已送達 / 已取貨」狀態碼
+DELIVERED_RTN_CODES: set[int] = {
+    2067,   # 7-Eleven B2C/C2C 消費者成功取件
+    3022,   # 全家 / 萊爾富 / OK C2C 消費者成功取件
+    3003,   # 黑貓宅配 已送達（部分 HOME 狀態與物流中心代碼共用）
+}
+
+# 7 天未取件代碼（包裹要退回賣家）
+EXPIRED_PICKUP_RTN_CODES: set[int] = {
+    2074, 3020,
+}
+
+# RtnMsg 含這些關鍵字 → 視為已送達。
+# 注意：不可包含「已送達」(too broad — 「商品已送達門市」是待取階段、非 delivered)
+DELIVERED_MSG_KEYWORDS = (
+    "成功取件",      # 超商：消費者成功取件
+    "客戶取件",
+    "已取件",
+    "妥投",          # 黑貓：順利妥投 = 收件人已收
+    "已配達",        # 黑貓：配達收件人
+    "已送達收件人",   # HOME 明確區分「送達門市」vs「送達收件人」
+    "已送達客戶",
+    "成功投遞",
+)
+
+
+def is_delivered_status(rtn_code: int, rtn_msg: str) -> bool:
+    """判斷 ECpay 狀態是否代表「已送達 / 客戶取貨」.
+
+    區分「商品送達門市」(待取階段) vs「客戶取走 / 妥投」(真正完成)。
+    """
+    if rtn_code in DELIVERED_RTN_CODES:
+        return True
+    if rtn_msg:
+        for kw in DELIVERED_MSG_KEYWORDS:
+            if kw in rtn_msg:
+                return True
+    return False
+
+
+def is_expired_pickup_status(rtn_code: int) -> bool:
+    """7 天未取件需 admin 處理（包裹會退回）."""
+    return rtn_code in EXPIRED_PICKUP_RTN_CODES
+
+
+# ── 查詢物流訂單 (/7418/) ──────────────────────────────────────────────────
+
+def query_endpoint_url() -> str:
+    return f"{_ecpay_base_url()}/Helper/QueryLogisticsTradeInfo/V5"
+
+
+def build_query_form(
+    *,
+    all_pay_logistics_id: str | None = None,
+    merchant_trade_no: str | None = None,
+) -> dict[str, str]:
+    """組查詢物流訂單的 request 參數。AllPayLogisticsID 與 MerchantTradeNo 二擇一."""
+    if not all_pay_logistics_id and not merchant_trade_no:
+        raise ValueError("AllPayLogisticsID / MerchantTradeNo 至少需提供一個")
+
+    import time
+    params: dict[str, str] = {
+        "MerchantID": settings.ecpay_merchant_id,
+        "TimeStamp": str(int(time.time())),
+    }
+    if all_pay_logistics_id:
+        params["AllPayLogisticsID"] = all_pay_logistics_id
+    if merchant_trade_no:
+        params["MerchantTradeNo"] = merchant_trade_no
+
+    params["CheckMacValue"] = calculate_check_mac_value(params)
+    return params
+
+
+async def query_logistics_trade(
+    *,
+    all_pay_logistics_id: str | None = None,
+    merchant_trade_no: str | None = None,
+) -> dict[str, str]:
+    """查詢物流訂單最新狀態（/7418/）。
+
+    回傳 ECpay 給的 dict（含 LogisticsStatus, BookingNote, CVSPaymentNo 等）。
+    dry_run 模式：回 mock 資料、不真連 ECpay。
+    """
+    if settings.ecpay_dry_run:
+        # mock 回應 — 模擬「客戶已取貨」
+        import secrets as _secrets
+        mock_id = all_pay_logistics_id or f"MOCK{_secrets.token_hex(6).upper()}"
+        return {
+            "AllPayLogisticsID": mock_id,
+            "MerchantTradeNo": merchant_trade_no or "DRY-MERCHANT",
+            "LogisticsStatus": "2067",
+            "LogisticsType": "CVS",
+            "RtnCode": "2067",
+            "RtnMsg": "[模擬] 消費者成功取件",
+            "UpdateStatusDate": datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
+            "_dry_run": "true",
+        }
+
+    params = build_query_form(
+        all_pay_logistics_id=all_pay_logistics_id,
+        merchant_trade_no=merchant_trade_no,
+    )
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        try:
+            resp = await client.post(
+                query_endpoint_url(),
+                data=params,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        except httpx.HTTPError as e:
+            logger.error(f"[query-logistics] ECpay HTTP error: {e}")
+            raise ConnectionError(f"ECpay 連線失敗：{e}") from e
+
+    body = resp.text.strip()
+    # /7418/ response 是 key=value&key=value 格式，沒有 1|/ 0| prefix
+    from urllib.parse import parse_qsl
+    raw = dict(parse_qsl(body, keep_blank_values=True))
+    if not raw:
+        raise ConnectionError(f"ECpay 查詢回應格式異常：{body[:200]}")
+    return raw
+
+
+# ── ECpay UpdateStatusDate 解析 ────────────────────────────────────────────
+
+def parse_ecpay_datetime(s: str) -> datetime | None:
+    """解析 ECpay 'yyyy/MM/dd HH:mm:ss' 為 datetime（UTC+0 naive，視為台灣時間 +8 → UTC）."""
+    from datetime import timezone, timedelta
+    if not s:
+        return None
+    try:
+        # ECpay 時間是台灣時間（UTC+8），轉成 UTC 存
+        tw_tz = timezone(timedelta(hours=8))
+        return datetime.strptime(s, "%Y/%m/%d %H:%M:%S").replace(tzinfo=tw_tz)
+    except ValueError:
+        try:
+            tw_tz = timezone(timedelta(hours=8))
+            return datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=tw_tz)
+        except ValueError:
+            return None
+
+
 def map_endpoint_url() -> str:
     return f"{_ecpay_base_url()}/Express/map"
 
