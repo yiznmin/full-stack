@@ -10,7 +10,7 @@
 
 | 階段 | 範圍 | 對應 ECpay API | 狀態 |
 |---|---|---|---|
-| **Day 1** | 超商選店（電子地圖） | [/8795/](https://developers.ecpay.com.tw/8795/) | ✅ **完成** — production 真實地圖通了 |
+| **Day 1** | 超商選店（電子地圖） | [/8795/](https://developers.ecpay.com.tw/8795/) | ✅ **完成 + 用戶端驗收通過**（2026-05-07，C2C UNIMARTC2C/FAMIC2C）|
 | **Day 2** | 物流訂單建立（CVS + 宅配） | [/7414/](https://developers.ecpay.com.tw/7414/) + 宅配 [/2870/] | ⏳ Pending |
 | **Day 3** | 物流狀態通知 webhook | [/10127/](https://developers.ecpay.com.tw/10127/) | ⏳ Pending |
 | **Day 4** | 託運單列印 + edge cases | [/7438/]、[/8477/] | ⏳ Pending |
