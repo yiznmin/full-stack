@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     # 部署環境由 Dockerfile RUN curl 下載到 /app/models/ 並設此 env var
     sam_model_path: str | None = None
 
+    # ── ECpay 物流（CVS Map / 超商選店）──────────────────────────────────
+    # 物流產品的 MerchantID / HashKey / HashIV（與電子發票是不同帳號）
+    ecpay_merchant_id: str = ""
+    ecpay_hash_key: str = ""
+    ecpay_hash_iv: str = ""
+    # 'stage' = 沙箱（logistics-stage.ecpay.com.tw）
+    # 'production' = 正式（logistics.ecpay.com.tw）
+    ecpay_env: str = "stage"
+    # ServerReplyURL：ECpay 把選店結果 POST 回我們的 callback URL（必須可被外網存取）
+    # 預設留空 → service 由 request.base_url 自動推導
+    ecpay_server_reply_url: str = ""
+
     class Config:
         env_file = ".env"
 

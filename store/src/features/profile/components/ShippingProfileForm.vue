@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { Loader2, MapPin, Store } from 'lucide-vue-next'
 import TaiwanAddressPicker from './TaiwanAddressPicker.vue'
+import ConvenienceStorePicker from './ConvenienceStorePicker.vue'
 import { useAuthStore } from '@/features/auth/store'
 import type { ShippingProfile, ShippingProfileInput, ShippingType } from '../api'
 
@@ -144,31 +145,13 @@ function onSubmit() {
 
     <!-- 超商欄位 -->
     <template v-else>
-      <div class="field-row">
-        <div class="field">
-          <label class="label" for="spf-store-id">門市代碼</label>
-          <input
-            id="spf-store-id"
-            v-model="form.store_id"
-            type="text"
-            class="input"
-            required
-            placeholder="例：123456"
-          />
-        </div>
-        <div class="field">
-          <label class="label" for="spf-store-name">門市名稱</label>
-          <input
-            id="spf-store-name"
-            v-model="form.store_name"
-            type="text"
-            class="input"
-            required
-            placeholder="例：信義門市"
-          />
-        </div>
-      </div>
-      <p class="hint">ECpay 地圖選店整合中；目前請至 7-11 / 全家官網查詢門市代碼後手動輸入。</p>
+      <ConvenienceStorePicker
+        :shipping-type="form.shipping_type"
+        :store-id="form.store_id"
+        :store-name="form.store_name"
+        @update:store-id="(v: string) => form.store_id = v"
+        @update:store-name="(v: string) => form.store_name = v"
+      />
     </template>
 
     <!-- Email -->

@@ -38,6 +38,7 @@ from color.router import router as color_router
 from content.router import router as content_router
 from custom.router import router as custom_router
 from discount.router import router as discount_router
+from logistics.router import router as logistics_router
 from notifications.router import router as notifications_router
 from orders.router import router as orders_router
 from palette.router import router as palette_router
@@ -63,3 +64,4 @@ app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(content_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
 app.include_router(print_batch_router, prefix="/api/v1")
+app.include_router(logistics_router, prefix="/api/v1")
