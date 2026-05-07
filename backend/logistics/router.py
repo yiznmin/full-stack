@@ -6,8 +6,10 @@
   - POST /logistics/cvs-callback
       → 接 ECpay 回傳，驗章後 postMessage 給 opener，close 自己
 """
+import asyncio
 from urllib.parse import urljoin
 
+import httpx
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
@@ -41,6 +43,75 @@ def _mask(value: str) -> str:
     if len(value) < 8:
         return f"(length={len(value)})"
     return f"{value[:3]}...{value[-3:]}"
+
+
+async def _probe_one_subtype(
+    client: httpx.AsyncClient,
+    sub_type: str,
+    server_reply_url: str,
+) -> dict:
+    """送一個假請求到 ECpay map 看是否被接受。"""
+    try:
+        params = service.build_cvs_map_form(
+            logistics_sub_type=sub_type,
+            server_reply_url=server_reply_url,
+            extra_data="",
+        )
+    except ValueError:
+        return {"sub_type": sub_type, "supported": False, "reason": "未知 SubType"}
+
+    try:
+        resp = await client.post(
+            service.map_endpoint_url(),
+            data=params,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15.0,
+        )
+        body = resp.text
+    except Exception as e:
+        return {"sub_type": sub_type, "supported": None, "reason": f"ECpay 連線失敗：{e}"}
+
+    if "找不到加密金鑰" in body or "請確認是否有申請開通" in body:
+        return {"sub_type": sub_type, "supported": False, "reason": "ECpay 回：未開通此物流方式"}
+    if "presco.com.tw" in body or "map.com.tw" in body or "<form" in body and "PostForm" in body:
+        return {"sub_type": sub_type, "supported": True, "reason": "ECpay 回真實地圖 redirect → 已開通"}
+    snippet = body.replace("\n", " ").strip()[:120]
+    return {"sub_type": sub_type, "supported": None, "reason": f"未知回應：{snippet}"}
+
+
+@router.get("/probe-subtypes")
+async def probe_subtypes(request: Request) -> dict:
+    """⚠️ 暫時 diagnostic — 用當前 env 的 MerchantID/HashKey 對 ECpay 試各 SubType，回報哪些已開通。
+
+    對 ECpay map endpoint 各送一筆 fake POST，依回應內容判斷：
+    - 「找不到加密金鑰」→ 未開通
+    - 真實 map redirect HTML → 已開通
+
+    僅供 user 確認自己 ECpay 帳號開通了哪些物流方式。正式上線前要刪除此 endpoint。
+    """
+    if not settings.ecpay_merchant_id:
+        return {"error": "ECPAY_MERCHANT_ID 未設定"}
+
+    server_reply_url = _resolve_server_reply_url(request)
+    sub_types = ["UNIMART", "UNIMARTFREEZE", "FAMI", "HILIFE", "UNIMARTC2C", "FAMIC2C", "HILIFEC2C", "OKMARTC2C"]
+
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(
+            *[_probe_one_subtype(client, st, server_reply_url) for st in sub_types]
+        )
+
+    activated = [r["sub_type"] for r in results if r["supported"] is True]
+    return {
+        "merchant_id": settings.ecpay_merchant_id,
+        "env": settings.ecpay_env,
+        "activated_subtypes": activated,
+        "category_hint": (
+            "B2C" if any(s in activated for s in ["UNIMART", "FAMI", "HILIFE"])
+            else "C2C" if any(s in activated for s in ["UNIMARTC2C", "FAMIC2C", "HILIFEC2C", "OKMARTC2C"])
+            else "未知"
+        ),
+        "details": results,
+    }
 
 
 @router.get("/debug-config")
