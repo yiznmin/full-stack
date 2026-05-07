@@ -11,9 +11,10 @@
 | 階段 | 範圍 | 對應 ECpay API | 狀態 |
 |---|---|---|---|
 | **Day 1** | 超商選店（電子地圖） | [/8795/](https://developers.ecpay.com.tw/8795/) | ✅ **完成 + 用戶端驗收通過**（2026-05-07，C2C UNIMARTC2C/FAMIC2C）|
-| **Day 2** | 物流訂單建立（CVS + 宅配） | [/7414/](https://developers.ecpay.com.tw/7414/) + 宅配 [/2870/] | ⏳ Pending |
-| **Day 3** | 物流狀態通知 webhook | [/10127/](https://developers.ecpay.com.tw/10127/) | ⏳ Pending |
-| **Day 4** | 託運單列印 + edge cases | [/7438/]、[/8477/] | ⏳ Pending |
+| **Day 2** | 物流訂單建立（CVS + 宅配） | [/8809/](https://developers.ecpay.com.tw/8809/) + [/7414/](https://developers.ecpay.com.tw/7414/) | ✅ Backend + Admin UI 完成（dry_run 模式驗收通過） |
+| **Day 3** | 物流狀態追蹤（webhook + query） | [/7420/](https://developers.ecpay.com.tw/7420/) + [/7418/](https://developers.ecpay.com.tw/7418/) | ⏳ Pending — 已寫 spec / 需求 |
+| **Day 4** | 託運單列印（HOME） + production 切換 | [/7438/]() | ⏳ Pending |
+| **Day 5（後）** | 逆物流（退貨） | [/7416/](https://developers.ecpay.com.tw/7416/) + [/7422/](https://developers.ecpay.com.tw/7422/) | 🟢 短期人工處理；長期再做 |
 
 **規則：** 每階段完成後必須 commit + push + user 實測通才往下；不自動連跑。
 
@@ -289,7 +290,10 @@ ECpay 回一個 HTML 表單，用瀏覽器打開可以列印託運單。
 2. ~~宅配走 ECpay 還是自己叫黑貓~~ ✅ **走 ECpay**（user 2026-05-07 確認）
 3. ~~C2C vs B2C~~ ✅ **已確認 C2C**（2026-05-07 經 probe-subtypes 實測）
 4. **重印託運單的場景？** 客戶要求重新列印貼紙還是只是 admin 內部備份？影響 Day 4 是否需要做版本控管。
-5. **Day 2 新增：宅配 SubType 開通狀態？** — 待 probe 確認（TCAT 黑貓 / ECAN 宅配通 / POST 郵局）
+5. ~~Day 2 宅配 SubType 開通狀態~~ ✅ **已確認**（2026-05-07 probe-subtypes 擴充版實測）
+   - HOME 開通：TCAT (黑貓) / POST (中華郵政) / ECAN (宅配通；ECpay 已停用此服務)
+   - CVS C2C 開通：UNIMARTC2C / FAMIC2C / HILIFEC2C / OKMARTC2C
+   - CVS B2C 全未開
 
 ---
 
@@ -298,3 +302,27 @@ ECpay 回一個 HTML 表單，用瀏覽器打開可以列印託運單。
 - 🧹 **刪 `/api/v1/logistics/debug-config` endpoint**（router.py 內）— diagnostic 工具，正式環境會洩漏 HashKey 頭尾字元
 - 🧹 **刪 `/api/v1/logistics/probe-subtypes` endpoint** — 同上，是過渡期診斷工具
 - 🧹 **生產環境替換 `paint-web-production.up.railway.app` → 正式 yiimui 網域**（如果你之後綁自家網域）
+
+---
+
+## 10. 文件交叉索引（完整地圖）
+
+### 規格檔（technical specs）
+| 內容 | 路徑 |
+|---|---|
+| Day 1 CVS Map (/8795/) | `docs/integration_specs/ecpay_cvs_map.md` |
+| Day 2 建單 (/8809/ + /7414/) | `docs/integration_specs/ecpay_create_shipment.md` |
+| Day 3 狀態追蹤 (/7418/ + /7420/) | `docs/integration_specs/ecpay_status_tracking.md` |
+| Day 5 逆物流 (/7416/ + /7422/) | `docs/integration_specs/ecpay_return.md` |
+
+### 業務需求（business requirements）
+| 內容 | 路徑 |
+|---|---|
+| 物流生命週期（付款→送達→完成） | `docs/requirements/logistics_status_lifecycle.md` |
+| 退貨流程（退貨 + 退款銜接） | `docs/requirements/logistics_return_lifecycle.md` |
+
+### 其他
+| 內容 | 路徑 |
+|---|---|
+| 整體推進計畫（這份） | `docs/module_plans/20_logistics_ecpay.md` |
+| 過程踩坑紀錄 | `docs/issues_log.md` |
