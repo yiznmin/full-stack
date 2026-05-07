@@ -500,7 +500,7 @@ async def execute_create_shipment(
         if len(receiver_address) <= 6:
             raise ValueError("收件地址過短（< 7 字）")
 
-    # 6. 組 form
+    # 6. 組 form（同時驗證所有欄位 — 即便 dry-run 也跑這步確保資料正確）
     params = build_create_shipment_form(
         merchant_trade_no=order_number[:MAX_MERCHANT_TRADE_NO_LEN],
         merchant_trade_date=order_created_at.strftime("%Y/%m/%d %H:%M:%S"),
@@ -519,6 +519,26 @@ async def execute_create_shipment(
         receiver_zip_code=receiver_zip_code,
         receiver_address=receiver_address,
     )
+
+    # 6.5 dry-run 模式：跳過真實 ECpay 呼叫，回 mock 資料
+    if settings.ecpay_dry_run:
+        import secrets as _secrets
+        mock_logistics_id = f"MOCK{_secrets.token_hex(6).upper()}"  # 16 字元
+        mock_tracking = f"DRY{_secrets.token_hex(5).upper()}"        # 13 字元
+        logger.warning(
+            f"[create-shipment][DRY-RUN] order={order_number} "
+            f"would POST to ECpay with params={params}"
+        )
+        return {
+            "ok": True,
+            "rtn_code": 300,
+            "rtn_msg": "[模擬] 訂單建立成功（未實際送 ECpay）",
+            "tracking_number": mock_tracking,
+            "ecpay_logistics_id": mock_logistics_id,
+            "validation_no": "0000" if shipping_type == "seven_eleven" else None,
+            "mac_verified": True,
+            "dry_run": True,
+        }
 
     # 7. POST 到 ECpay
     async with httpx.AsyncClient(timeout=20.0) as client:

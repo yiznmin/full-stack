@@ -127,7 +127,9 @@ async def debug_config(request: Request) -> dict:
         "hash_iv_masked": _mask(settings.ecpay_hash_iv),
         "hash_iv_length": len(settings.ecpay_hash_iv),
         "env": settings.ecpay_env or "(empty)",
-        "computed_endpoint": service.map_endpoint_url(),
+        "dry_run": settings.ecpay_dry_run,
+        "computed_endpoint_map": service.map_endpoint_url(),
+        "computed_endpoint_create": service.create_endpoint_url(),
         "computed_callback_url": _resolve_server_reply_url(request),
     }
 

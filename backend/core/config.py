@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # 預設留空 → service 由 request.base_url 自動推導
     ecpay_server_reply_url: str = ""
 
+    # 'true' = 模擬模式（不真打 ECpay /Express/Create）
+    # 'false' = 正式模式（真送 ECpay 建單）
+    # 開發 / UI 驗收期間設 true，避免在正式 ECpay 帳號留真實託運單。
+    ecpay_dry_run: bool = False
+
     @field_validator(
         "ecpay_merchant_id", "ecpay_hash_key", "ecpay_hash_iv",
         "ecpay_env", "ecpay_server_reply_url",
