@@ -47,6 +47,7 @@ function handleMessage(e: MessageEvent) {
   if (!data || data.type !== 'ecpay-cvs-selected') return
 
   opening.value = false
+  stopClosedPoll()
   if (!data.ok || !data.store_id) {
     errorText.value = '選店失敗或簽章驗證未通過，請再試一次'
     return
@@ -68,10 +69,20 @@ function handleMessage(e: MessageEvent) {
 window.addEventListener('message', handleMessage)
 onBeforeUnmount(() => {
   window.removeEventListener('message', handleMessage)
+  stopClosedPoll()
   if (popupRef.value && !popupRef.value.closed) {
     popupRef.value.close()
   }
 })
+
+let closedPollHandle: number | null = null
+
+function stopClosedPoll() {
+  if (closedPollHandle !== null) {
+    clearInterval(closedPollHandle)
+    closedPollHandle = null
+  }
+}
 
 function openPicker() {
   errorText.value = null
@@ -87,7 +98,17 @@ function openPicker() {
   if (!popupRef.value) {
     opening.value = false
     errorText.value = '無法開啟選店視窗，請允許彈出視窗後再試'
+    return
   }
+
+  // poll 偵測使用者手動關閉視窗（沒選店就關 → postMessage 不會觸發）
+  stopClosedPoll()
+  closedPollHandle = window.setInterval(() => {
+    if (!popupRef.value || popupRef.value.closed) {
+      opening.value = false
+      stopClosedPoll()
+    }
+  }, 500)
 }
 
 function clearStore() {
