@@ -10,7 +10,7 @@ import asyncio
 from urllib.parse import urljoin
 
 import httpx
-from fastapi import APIRouter, Form, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from core.config import settings
@@ -197,38 +197,38 @@ async def cvs_map_redirect(
 
 
 @router.post("/cvs-callback", response_class=HTMLResponse)
-async def cvs_map_callback(
-    request: Request,
-    MerchantID: str = Form(...),
-    MerchantTradeNo: str = Form(...),
-    LogisticsSubType: str = Form(...),
-    CVSStoreID: str = Form(""),
-    CVSStoreName: str = Form(""),
-    CVSAddress: str = Form(""),
-    CVSTelephone: str = Form(""),
-    CVSOutSide: str = Form(""),  # '0' = 本島, '1' = 離島；UNIMART/UNIMARTC2C/FAMI/FAMIC2C 才有
-    ExtraData: str = Form(""),
-    CheckMacValue: str = Form(""),
-) -> HTMLResponse:
+async def cvs_map_callback(request: Request) -> HTMLResponse:
     """接 ECpay 選店結果，驗章後用 postMessage 把資料傳給 opener window，並 close 自己。
 
     來源：https://developers.ecpay.com.tw/8795/ ServerReplyURL 回傳參數規格
+
+    注意：以前用 FastAPI Form(...) 一個個列欄位，但 ECpay 實際送的欄位
+    可能比文件多／少（例如 CVSOutSide 有時不送）；驗章必須對「實際全部欄位」
+    算，少抓一個就 mismatch。改成讀整份 form data 再驗。
     """
-    params = {
-        "MerchantID": MerchantID,
-        "MerchantTradeNo": MerchantTradeNo,
-        "LogisticsSubType": LogisticsSubType,
-        "CVSStoreID": CVSStoreID,
-        "CVSStoreName": CVSStoreName,
-        "CVSAddress": CVSAddress,
-        "CVSTelephone": CVSTelephone,
-        "CVSOutSide": CVSOutSide,
-        "ExtraData": ExtraData,
-        "CheckMacValue": CheckMacValue,
-    }
-    # 簽章驗證時排除 CheckMacValue 自身與空值欄位
-    params_for_check = {k: v for k, v in params.items() if k != "CheckMacValue" and v != ""}
-    valid = service.verify_check_mac_value({**params_for_check, "CheckMacValue": CheckMacValue})
+    form = await request.form()
+    all_params: dict[str, str] = {k: str(form.get(k, "")) for k in form.keys()}
+    print(f"[ecpay-callback] received params: {all_params}", flush=True)
+
+    received_mac = all_params.get("CheckMacValue", "")
+    # 用「全部欄位 - CheckMacValue 自身」重算，與 received 比對
+    rest = {k: v for k, v in all_params.items() if k != "CheckMacValue"}
+    expected_mac = service.calculate_check_mac_value(rest)
+    valid = bool(received_mac) and received_mac.upper() == expected_mac
+    if not valid:
+        print(f"[ecpay-callback] MAC mismatch: received={received_mac} expected={expected_mac}", flush=True)
+
+    # 必要欄位提取（給前端 postMessage）
+    MerchantID = all_params.get("MerchantID", "")
+    MerchantTradeNo = all_params.get("MerchantTradeNo", "")
+    LogisticsSubType = all_params.get("LogisticsSubType", "")
+    CVSStoreID = all_params.get("CVSStoreID", "")
+    CVSStoreName = all_params.get("CVSStoreName", "")
+    CVSAddress = all_params.get("CVSAddress", "")
+    CVSTelephone = all_params.get("CVSTelephone", "")
+    CVSOutSide = all_params.get("CVSOutSide", "")
+    ExtraData = all_params.get("ExtraData", "")
+    CheckMacValue = received_mac
 
     payload = {
         "type": "ecpay-cvs-selected",
