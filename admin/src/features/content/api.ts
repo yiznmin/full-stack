@@ -217,20 +217,69 @@ export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
   advanced: '進階',
 }
 
-export const SETTING_LABEL: Record<string, { label: string; type: 'text' | 'textarea' | 'number' }> = {
-  bank_account_number: { label: '銀行帳號', type: 'text' },
-  bank_name: { label: '銀行名稱', type: 'text' },
-  bank_account_name: { label: '匯款戶名', type: 'text' },
-  quote_reply_days: { label: '客製預計回覆天數', type: 'number' },
-  product_info_tools: { label: '畫具內容物說明', type: 'textarea' },
-  product_info_material: { label: '畫布材質說明', type: 'textarea' },
-  product_info_tips: { label: '使用建議', type: 'textarea' },
-  product_info_notes: { label: '注意事項', type: 'textarea' },
-  paint_ml_per_cm2: { label: '顏料塗佈係數（ml/cm²）', type: 'number' },
-  paint_min_ml: { label: '顏料最低配給量（ml）', type: 'number' },
-  paint_buffer_ratio: { label: '顏料緩衝係數', type: 'number' },
-  custom_photo_price_multiplier: { label: '客製服務費率倍數', type: 'number' },
-  payment_absolute_deadline_hours: { label: '付款絕對期限（小時）', type: 'number' },
+export interface SettingMeta {
+  label: string
+  type: 'text' | 'textarea' | 'number'
+  hint?: string
+  group: 'payment' | 'ecpay_sender' | 'product_info' | 'paint' | 'custom' | 'misc'
+}
+
+export const SETTING_LABEL: Record<string, SettingMeta> = {
+  // 付款資訊（給客戶看的匯款帳號）
+  bank_account_number: { label: '銀行帳號', type: 'text', group: 'payment' },
+  bank_name: { label: '銀行名稱', type: 'text', group: 'payment' },
+  bank_account_name: { label: '匯款戶名', type: 'text', group: 'payment' },
+  payment_absolute_deadline_hours: { label: '付款絕對期限（小時）', type: 'number', group: 'payment' },
+
+  // ECpay 寄件人資訊（建立物流訂單用，必填）
+  ecpay_sender_name: {
+    label: 'ECpay 寄件人姓名',
+    type: 'text',
+    hint: '4-10 字、禁數字與特殊符號（ECpay 規範）',
+    group: 'ecpay_sender',
+  },
+  ecpay_sender_phone: {
+    label: 'ECpay 寄件人手機',
+    type: 'text',
+    hint: '09 開頭 10 碼純數字',
+    group: 'ecpay_sender',
+  },
+  ecpay_sender_zip_code: {
+    label: 'ECpay 寄件人郵遞區號',
+    type: 'text',
+    hint: '3-5 碼數字（如 100、24501）',
+    group: 'ecpay_sender',
+  },
+  ecpay_sender_address: {
+    label: 'ECpay 寄件人地址',
+    type: 'text',
+    hint: '完整地址（縣市+行政區+巷弄號樓），長度需 > 6 字',
+    group: 'ecpay_sender',
+  },
+
+  // 商品資訊（store 商品說明區塊）
+  product_info_tools: { label: '畫具內容物說明', type: 'textarea', group: 'product_info' },
+  product_info_material: { label: '畫布材質說明', type: 'textarea', group: 'product_info' },
+  product_info_tips: { label: '使用建議', type: 'textarea', group: 'product_info' },
+  product_info_notes: { label: '注意事項', type: 'textarea', group: 'product_info' },
+
+  // 顏料計算
+  paint_ml_per_cm2: { label: '顏料塗佈係數（ml/cm²）', type: 'number', group: 'paint' },
+  paint_min_ml: { label: '顏料最低配給量（ml）', type: 'number', group: 'paint' },
+  paint_buffer_ratio: { label: '顏料緩衝係數', type: 'number', group: 'paint' },
+
+  // 客製設定
+  quote_reply_days: { label: '客製預計回覆天數', type: 'number', group: 'custom' },
+  custom_photo_price_multiplier: { label: '客製服務費率倍數', type: 'number', group: 'custom' },
+}
+
+export const SETTING_GROUP_LABEL: Record<SettingMeta['group'], string> = {
+  payment: '付款資訊（顯示給客戶）',
+  ecpay_sender: 'ECpay 寄件人資訊（建立物流訂單必填）',
+  product_info: '商品資訊（store 顯示）',
+  paint: '顏料計算',
+  custom: '客製設定',
+  misc: '其他',
 }
 
 export const PAGE_LABEL: Record<string, string> = {
