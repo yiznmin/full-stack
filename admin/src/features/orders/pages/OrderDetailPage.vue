@@ -489,6 +489,15 @@ function copyOrderNumber() {
           </div>
         </Card>
 
+        <!-- Customer notes (客戶下單時填的備註) -->
+        <Card v-if="order.customer_notes">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="font-display text-ink-strong text-[18px] leading-[26px]">客戶備註</h2>
+            <span class="text-[11px] text-ink-muted">下單時客戶填寫</span>
+          </div>
+          <p class="text-[14px] text-ink-default whitespace-pre-line leading-[1.7]">{{ order.customer_notes }}</p>
+        </Card>
+
         <!-- Admin notes -->
         <Card>
           <div class="flex items-center justify-between mb-3">
