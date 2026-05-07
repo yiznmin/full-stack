@@ -16,6 +16,7 @@
 | [003](#003) | 2026-05-07 | logistics | 🟡 嚴重 | Railway proxy 讓 ServerReplyURL 變 http 而非 https |
 | [004](#004) | 2026-05-07 | orders | 🔴 阻塞 | 用戶端訂單狀態「跳回待付款」(實際是 stepper 對映 bug) |
 | [005](#005) | 2026-05-07 | logistics | 🔴 阻塞 | create_shipment ImportError → 500「伺服器內部錯誤」 |
+| [006](#006) | 2026-05-07 | orders | 🟢 顯示瑕疵 | 已出貨訂單顯示「⚠ 未確認」橘標誤導 |
 
 ---
 
@@ -179,6 +180,31 @@ ECpay 在 production 強制要求 ServerReplyURL 必須是 https。
 - 寫 `from XX import YY` 前要 `grep -rn "class YY" backend/` 確認 module 路徑
 - 500 generic error handler 隱藏太多資訊；長期應該在 dev / staging 環境暴露 traceback，production 才隱藏
 - 每次後端改完應該至少打一次該 endpoint 確認可呼叫（smoke test）
+
+---
+
+<a id="006"></a>
+## #006 已出貨訂單顯示「⚠ 未確認」橘標誤導
+
+**日期**：2026-05-07
+**模組**：`admin/src/features/orders/pages/OrderDetailPage.vue` + `backend/orders/`
+**現象**：admin 看已出貨的舊訂單，收件資訊區塊顯示「⚠ 未確認」橘標。User 詢問「是因為已經出貨了對嗎」。
+
+**根因**：`shipping_locked` 是新加的 column，預設 `false`。舊訂單（包括已出貨的）都是 false → badge 顯示「未確認」。但對已出貨訂單來說這個 badge 沒意義 — 出貨已既成事實，再「確認」也改不了。
+
+**解法**：
+1. **後端 `create_shipment`**：建單成功時把 `order.shipping_locked = True`（雙保險，前置已檢查）
+2. **`init_db.py` backfill SQL**：一次性把已有 Shipment 的舊訂單設為 locked
+   ```sql
+   UPDATE orders SET shipping_locked = TRUE
+   WHERE id IN (SELECT DISTINCT order_id FROM shipments)
+   ```
+3. **admin UI**：badge 只在 `status in (paid, processing)` 顯示；`shipped` 之後階段隱藏
+
+**教訓**：
+- 加新 column 時要想清楚「對舊資料的預設語意是什麼」
+- 純 boolean default false 對於已存在的「應該為 true」的記錄會造成 UI 誤導
+- backfill SQL 應該跟 column 加入同步部署，不要等到 user 抱怨才補
 
 ---
 
