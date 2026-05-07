@@ -16,12 +16,12 @@ const emit = defineEmits<{
   'selected': [info: { storeId: string; storeName: string; address: string; phone: string }]
 }>()
 
-// shipping_type → ECpay LogisticsSubType (B2C 大宗寄件)
-// 沙箱 2000132 只開 B2C；多數新申請的特店帳號也是 B2C。
-// 若你帳號實際開的是 C2C，把下面改成 UNIMARTC2C / FAMIC2C 即可。
+// shipping_type → ECpay LogisticsSubType (C2C 店到店)
+// User 的 ECpay 帳號實際開的是 C2C；確認方式：GET /api/v1/logistics/probe-subtypes
+// C2C 不用測標、按單收費、適合中小規模。要切 B2C 改成 UNIMART / FAMI 即可。
 const SUB_TYPE_MAP: Record<string, string> = {
-  seven_eleven: 'UNIMART',
-  family_mart: 'FAMI',
+  seven_eleven: 'UNIMARTC2C',
+  family_mart: 'FAMIC2C',
 }
 
 const opening = ref(false)
