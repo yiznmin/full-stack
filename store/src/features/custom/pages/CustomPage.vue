@@ -1,18 +1,47 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useQuery } from '@tanstack/vue-query'
 import {
   ArrowRight, BookOpen, Image as ImageIcon, Sparkles,
   ImagePlus, MessageSquare, CheckCircle2, Palette,
 } from 'lucide-vue-next'
 import SectionMasthead from '@/shared/components/SectionMasthead.vue'
 import { useCustomRequestListQuery } from '../queries'
-import { STATUS_LABEL } from '../api'
+import { STATUS_LABEL, listCustomCases, DIFFICULTY_LABEL, type CustomCase, type Difficulty } from '../api'
 import CustomApplyForm from '../components/CustomApplyForm.vue'
+import CaseDetailDialog from '../components/CaseDetailDialog.vue'
 
 function scrollToApply(e: MouseEvent) {
   e.preventDefault()
   document.getElementById('apply-section')?.scrollIntoView({ behavior: 'smooth' })
+}
+
+// 案例靈感 inline（取最新 6 件）
+const casesQuery = useQuery({
+  queryKey: ['custom-cases-hub', { page_size: 6 }] as const,
+  queryFn: () => listCustomCases({ page: 1, page_size: 6 }),
+  staleTime: 5 * 60 * 1000,
+})
+const cases = computed<CustomCase[]>(() => casesQuery.data.value?.items ?? [])
+
+const activeCase = ref<CustomCase | null>(null)
+function openCase(c: CustomCase) { activeCase.value = c }
+function closeCase() { activeCase.value = null }
+
+// 從 modal 點「諮詢類似規格」→ 預填表單 + scroll 到表單
+const applyFormRef = ref<InstanceType<typeof CustomApplyForm> | null>(null)
+function consultCase(c: CustomCase) {
+  closeCase()
+  applyFormRef.value?.applyCaseInspiration({
+    canvas_w_cm: c.canvas_w_cm,
+    canvas_h_cm: c.canvas_h_cm,
+    difficulty: c.difficulty,
+    title: c.title,
+  })
+  setTimeout(() => {
+    document.getElementById('apply-section')?.scrollIntoView({ behavior: 'smooth' })
+  }, 100)
 }
 
 // 已登入：顯示自己的進行中申請（不包含已完成）
@@ -104,6 +133,38 @@ const inflightRequests = computed(() =>
       </div>
     </section>
 
+    <!-- ── 案例靈感 inline ───────────────────────────────────────── -->
+    <section v-if="cases.length > 0 || casesQuery.isPending.value" class="cases-section">
+      <SectionMasthead
+        no="02"
+        chapter="Inspiration"
+        title="客製案例參考"
+        caption="From our archive"
+        link-text="瀏覽全部案例 →"
+        link-to="/custom/cases"
+      />
+      <div v-if="casesQuery.isPending.value" class="cases-loading">案例載入中…</div>
+      <div v-else class="cases-grid">
+        <article
+          v-for="c in cases"
+          :key="c.id"
+          class="case-card"
+          @click="openCase(c)"
+        >
+          <div class="case-img">
+            <img :src="c.image_url" :alt="c.title" loading="lazy" />
+          </div>
+          <div class="case-meta">
+            <h4>{{ c.title }}</h4>
+            <p v-if="c.canvas_w_cm" class="case-spec">
+              {{ c.canvas_w_cm }}×{{ c.canvas_h_cm }} cm
+              <span v-if="c.difficulty"> · {{ DIFFICULTY_LABEL[c.difficulty as Difficulty] || c.difficulty }}</span>
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <!-- ── 申請表單區（直接在 hub 底部讓使用者 scroll 填寫） ──────── -->
     <section class="apply-section" id="apply-section">
       <SectionMasthead
@@ -116,7 +177,7 @@ const inflightRequests = computed(() =>
         上傳一張您喜歡的照片、留下基本偏好，<br />
         我們將在 1–3 個工作天內回覆專屬報價。
       </p>
-      <CustomApplyForm />
+      <CustomApplyForm ref="applyFormRef" />
     </section>
 
     <!-- ── 4-step quick overview ────────────────────────────────────── -->
@@ -155,6 +216,12 @@ const inflightRequests = computed(() =>
         </li>
       </ol>
     </section>
+
+    <CaseDetailDialog
+      :case-data="activeCase"
+      @close="closeCase"
+      @consult="consultCase"
+    />
   </main>
 </template>
 
@@ -252,6 +319,45 @@ const inflightRequests = computed(() =>
   border-bottom: 1px solid currentColor; padding-bottom: 4px;
   align-self: flex-start;
   transition: color 200ms;
+}
+
+/* cases inline section */
+.cases-section { margin-bottom: 80px; }
+.cases-loading {
+  padding: 40px; text-align: center;
+  color: var(--color-ink-muted); font-size: 13px;
+}
+.cases-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); gap: 20px;
+}
+@media (max-width: 880px) { .cases-grid { grid-template-columns: 1fr 1fr; } }
+.case-card {
+  cursor: pointer;
+  border: 1px solid var(--color-line-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--color-paper-surface);
+  transition: border-color 200ms, transform 200ms;
+}
+.case-card:hover {
+  border-color: var(--color-accent);
+  transform: translateY(-2px);
+}
+.case-img {
+  aspect-ratio: 4 / 3; overflow: hidden;
+  background: var(--color-paper-deep);
+}
+.case-img img { width: 100%; height: 100%; object-fit: cover; }
+.case-meta { padding: 12px 16px 14px; }
+.case-meta h4 {
+  font-family: var(--font-cn-serif); font-weight: 400;
+  font-size: 15px; color: var(--color-ink-strong);
+  margin: 0 0 4px;
+}
+.case-spec {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--color-ink-muted); margin: 0; letter-spacing: 0.06em;
 }
 
 /* apply section */

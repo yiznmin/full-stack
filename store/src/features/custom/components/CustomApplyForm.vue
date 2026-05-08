@@ -253,6 +253,29 @@ function applyQueryPrefill() {
   }
 }
 
+/** 給同頁案例 modal 直接呼叫，不需 URL query 跳轉 */
+function applyCaseInspiration(c: { canvas_w_cm?: number | null; canvas_h_cm?: number | null; difficulty?: string | null; title?: string }) {
+  if (c.canvas_w_cm && c.canvas_h_cm) {
+    const matchedId = matchCanvasIdByDimensions(c.canvas_w_cm, c.canvas_h_cm)
+    if (matchedId) selectedCanvasId.value = matchedId
+    else {
+      customCanvasW.value = c.canvas_w_cm
+      customCanvasH.value = c.canvas_h_cm
+    }
+  }
+  if (c.difficulty) {
+    difficultyChoice.value = c.difficulty as Difficulty
+    difficulty.value = c.difficulty as Difficulty
+  }
+  if (c.title) {
+    customerNotes.value =
+      `希望做出類似「${c.title}」風格的作品。\n` +
+      (customerNotes.value ? `\n${customerNotes.value}` : '')
+  }
+}
+
+defineExpose({ applyCaseInspiration })
+
 watch(
   [() => auth.bootstrapped, canvasSizes],
   ([booted, sizes]) => {
