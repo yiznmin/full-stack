@@ -51,6 +51,7 @@ import PaymentFlagDialog from '../components/PaymentFlagDialog.vue'
 import RefundProcessingDialog from '../components/RefundProcessingDialog.vue'
 import RefundFinalizeDialog from '../components/RefundFinalizeDialog.vue'
 import ProductionProgressRow from '../components/ProductionProgressRow.vue'
+import ConvenienceStorePicker from '../components/ConvenienceStorePicker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -839,16 +840,14 @@ function copyOrderNumber() {
         </template>
 
         <template v-else>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <Label>門市代碼</Label>
-              <Input v-model="shippingForm.store_id" />
-            </div>
-            <div>
-              <Label>門市名稱</Label>
-              <Input v-model="shippingForm.store_name" />
-            </div>
-          </div>
+          <Label>取貨門市</Label>
+          <ConvenienceStorePicker
+            :shipping-type="order.shipping_type"
+            :store-id="shippingForm.store_id"
+            :store-name="shippingForm.store_name"
+            @update:store-id="(v: string) => shippingForm.store_id = v"
+            @update:store-name="(v: string) => shippingForm.store_name = v"
+          />
         </template>
 
         <p

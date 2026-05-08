@@ -121,19 +121,31 @@ function clearStore() {
 
 <template>
   <div class="cvs-picker">
-    <div v-if="storeId && storeName" class="selected-card">
-      <div class="selected-icon">
-        <Store :size="14" />
+    <template v-if="storeId && storeName">
+      <div class="selected-card">
+        <div class="selected-icon">
+          <Store :size="14" />
+        </div>
+        <div class="selected-info">
+          <div class="selected-name">{{ storeName }}</div>
+          <div class="selected-meta">門市代碼 {{ storeId }}</div>
+          <div v-if="lastSelectedAddress" class="selected-addr">{{ lastSelectedAddress }}</div>
+        </div>
+        <button type="button" class="clear-btn" @click="clearStore" aria-label="清除門市">
+          <X :size="14" />
+        </button>
       </div>
-      <div class="selected-info">
-        <div class="selected-name">{{ storeName }}</div>
-        <div class="selected-meta">門市代碼 {{ storeId }}</div>
-        <div v-if="lastSelectedAddress" class="selected-addr">{{ lastSelectedAddress }}</div>
-      </div>
-      <button type="button" class="clear-btn" @click="clearStore" aria-label="清除門市">
-        <X :size="14" />
+      <button
+        type="button"
+        class="open-btn open-btn-secondary"
+        :disabled="opening"
+        @click="openPicker"
+      >
+        <Loader2 v-if="opening" :size="14" class="spin" />
+        <MapPin v-else :size="14" />
+        <span>{{ opening ? '正在開啟選店視窗…' : '重新選擇門市' }}</span>
       </button>
-    </div>
+    </template>
 
     <button
       v-else
@@ -183,6 +195,22 @@ function clearStore() {
 }
 .open-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .open-btn :deep(svg) { stroke: currentColor; stroke-width: 1.5; fill: none; }
+
+/* 已選店時的「重新選擇」按鈕 — 較不搶眼，避免跟「已選門市」視覺衝突 */
+.open-btn-secondary {
+  border-style: solid;
+  border-color: var(--color-line);
+  background: transparent;
+  color: var(--color-ink-default);
+  padding: 8px 14px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.open-btn-secondary:hover:not(:disabled) {
+  background: var(--color-paper-deep);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
 
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
