@@ -176,6 +176,15 @@ async def admin_toggle_publish(
 # ── Case Categories ───────────────────────────────────────────────────────────
 
 
+@router.get("/case-categories", response_model=CaseCategoryListResponse)
+async def public_list_categories(
+    db: AsyncSession = Depends(get_db),
+):
+    """公開：列出案例分類（給 store /custom/cases 過濾 UI 用）。"""
+    items = await service.list_categories(db)
+    return {"items": items}
+
+
 @router.get("/admin/case-categories", response_model=CaseCategoryListResponse)
 async def list_categories(
     _=Depends(require_admin),

@@ -25,6 +25,7 @@
 | Q13 過期重申請 CTA | **要做**：`quote_expired` 狀態下顯示「重新申請」按鈕，預填上次資料 | 用戶確認 |
 | Q14 v1.1 修正項目 | 重讀規格後發現 12 處違規（精細度欄位/難易度級數/尺寸選填/檔案上限/PriceRangeHint/未登入照片disabled/提示文字 …），須一次補齊 | 用戶確認 |
 | Q15 reviewer fixes | 反思審查找到 3 處後端缺陷：(1) PATCH 對 canvas/notes 缺範圍 / 長度驗證 (2) 兩個 public GET 缺 `response_model` (Gate 3 規範) (3) PATCH 空 body 仍 commit；已修並補 4 個測試。 | 反思審查 |
+| Q16 hub + 3 子頁重組（v1.2）| 原 `/custom` 一頁塞 hero + 進行中 + 案例 + 4-step + 表單，過長且動線差。重組為：`/custom` (hub) + `/custom/about` (服務說明 / FAQ，先寫死靜態文案，後續整合 S10 markdown editor) + `/custom/cases` (完整案例 gallery + 分類過濾) + `/custom/apply` (純表單)。商品頁 CTA、案例「諮詢類似規格」CTA、過期重申請 CTA 全部直連 `/custom/apply`。 | 用戶確認 |
 
 ### 待 v2 細緻討論（2026-05-08 記錄）
 

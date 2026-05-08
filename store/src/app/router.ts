@@ -11,6 +11,9 @@ import CheckoutCompletePage from '@/features/checkout/pages/CheckoutCompletePage
 import OrderListPage from '@/features/orders/pages/OrderListPage.vue'
 import OrderDetailPage from '@/features/orders/pages/OrderDetailPage.vue'
 import CustomPage from '@/features/custom/pages/CustomPage.vue'
+import CustomAboutPage from '@/features/custom/pages/CustomAboutPage.vue'
+import CustomCasesPage from '@/features/custom/pages/CustomCasesPage.vue'
+import CustomApplyPage from '@/features/custom/pages/CustomApplyPage.vue'
 import CustomRequestListPage from '@/features/custom/pages/CustomRequestListPage.vue'
 import CustomRequestDetailPage from '@/features/custom/pages/CustomRequestDetailPage.vue'
 import QuotePage from '@/features/custom/pages/QuotePage.vue'
@@ -51,6 +54,9 @@ export const router = createRouter({
     { path: '/themes/:id', name: 'theme-detail', component: ThemeDetailPage, meta: { layout: 'default' } },
     { path: '/series/:id', name: 'series-detail', component: SeriesDetailPage, meta: { layout: 'default' } },
     { path: '/custom', name: 'custom', component: CustomPage, meta: { layout: 'default' } },
+    { path: '/custom/about', name: 'custom-about', component: CustomAboutPage, meta: { layout: 'default' } },
+    { path: '/custom/cases', name: 'custom-cases', component: CustomCasesPage, meta: { layout: 'default' } },
+    { path: '/custom/apply', name: 'custom-apply', component: CustomApplyPage, meta: { layout: 'default' } },
     { path: '/size-guide', name: 'size-guide', component: SizeGuidePage, meta: { layout: 'default' } },
     { path: '/shipping-info', name: 'shipping-info', component: ShippingInfoPage, meta: { layout: 'default' } },
     { path: '/custom-process', name: 'custom-process', component: CustomProcessPage, meta: { layout: 'default' } },

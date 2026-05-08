@@ -182,7 +182,7 @@ function reapplyFromExpired() {
     customer_notes: detail.value.customer_notes,
     parent_request_id: detail.value.id,
   })
-  router.push({ path: '/custom', query: { from: 'expired' } })
+  router.push({ path: '/custom/apply', query: { from: 'expired' } })
 }
 
 // ── 顯示輔助 ──────────────────────────────────────────────────────────────
@@ -285,7 +285,7 @@ onBeforeUnmount(() => {
         </button>
         <RouterLink
           v-else-if="detail.status === 'quote_rejected'"
-          to="/custom"
+          to="/custom/apply"
           class="banner-cta"
         >
           重新申請 →

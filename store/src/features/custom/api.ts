@@ -392,6 +392,15 @@ export async function listCustomCases(params?: {
   return jsonRequest<CustomCaseListResponse>(`/custom-cases${qs ? `?${qs}` : ''}`)
 }
 
+export interface CaseCategory {
+  id: string
+  name: string
+}
+
+export async function listCaseCategories(): Promise<{ items: CaseCategory[] }> {
+  return jsonRequest<{ items: CaseCategory[] }>('/case-categories')
+}
+
 // ── Status / type display helpers ────────────────────────────────────────────
 
 export const STATUS_LABEL: Record<RequestStatus, string> = {

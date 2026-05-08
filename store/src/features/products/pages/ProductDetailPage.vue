@@ -235,7 +235,7 @@ async function onAddToCart() {
           </Transition>
         </div>
 
-        <RouterLink to="/custom" class="custom-cta">
+        <RouterLink to="/custom/apply" class="custom-cta">
           <Sparkles class="custom-cta-icon" />
           <span class="custom-cta-text">
             <span class="custom-cta-title">想要不同規格？</span>
