@@ -65,3 +65,13 @@ app.include_router(content_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
 app.include_router(print_batch_router, prefix="/api/v1")
 app.include_router(logistics_router, prefix="/api/v1")
+
+
+# ── Startup: idempotent reference data seed ─────────────────────────────────
+# 某些環境 alembic bulk_insert seed 沒生效（dev / Railway prod 都遇過 canvas_sizes
+# 為空）。這裡用 ON CONFLICT DO NOTHING 補；既有資料不動，admin 後台改的不會被洗。
+@app.on_event("startup")
+async def _bootstrap_seeds() -> None:
+    from core.database import engine as _engine
+    from custom.bootstrap import ensure_canvas_sizes
+    await ensure_canvas_sizes(_engine)
