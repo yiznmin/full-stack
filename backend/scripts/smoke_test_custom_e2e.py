@@ -53,8 +53,9 @@ async def register_or_login_customer(client: httpx.AsyncClient) -> None:
     )
     # 直接用 SQLAlchemy 把 email_verified=True（避免 dev 等驗證信）
     import os
-    from sqlalchemy.ext.asyncio import create_async_engine
+
     from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
     eng = create_async_engine(
         os.environ.get("DATABASE_URL")
         or "postgresql+asyncpg://postgres:dev123@localhost:1128/yiimui"
@@ -88,7 +89,7 @@ def _extract_token_and_inject(client: httpx.AsyncClient, response: httpx.Respons
     m = re.search(r"access_token=([^;]+)", raw)
     if not m:
         return
-    setattr(client, "_smoke_token", m.group(1))
+    client._smoke_token = m.group(1)
 
 
 def _auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
@@ -245,7 +246,7 @@ async def main() -> None:
         # 可能 admin_send_quote 需要 production_job 已 approved；若沒有，這步會 400
         # 改為驗證錯誤訊息合理即可，再略過 SSE check
         print(f"  WARN: admin_send_quote returned {r.status_code}: {r.text[:200]}", flush=True)
-        print(f"  (這在沒有 production_job 的乾淨環境下是預期 — 跳過 quote_sent SSE 驗證)", flush=True)
+        print("  (這在沒有 production_job 的乾淨環境下是預期 — 跳過 quote_sent SSE 驗證)", flush=True)
     else:
         data = await expect_event(cust_q, "quote_sent", timeout=5.0)
         check(data.get("status") == "quote_sent", f"customer SSE got quote_sent: {data}")
@@ -257,6 +258,93 @@ async def main() -> None:
     detail = r.json()
     check(detail["id"] == request_id, "id matches")
     check(len(detail["messages"]) >= 3, f"messages length {len(detail['messages'])} >= 3 (welcome + customer + admin)")
+
+    # ── v1.1 / v1.2 additions ────────────────────────────────────────────────
+
+    step("11) public reference endpoints")
+    r = await customer.get(f"{BASE}/canvas-sizes")
+    check(r.status_code == 200, f"GET /canvas-sizes {r.status_code}")
+    body = r.json()
+    check(len(body["items"]) > 0, f"canvas-sizes items > 0 (got {len(body['items'])})")
+
+    r = await customer.get(f"{BASE}/case-categories")
+    check(r.status_code == 200, f"GET /case-categories {r.status_code}")
+    body = r.json()
+    check("items" in body, "case-categories has items key")
+
+    r = await customer.get(f"{BASE}/custom-photo-prices")
+    check(r.status_code == 200, f"GET /custom-photo-prices {r.status_code}")
+    body = r.json()
+    check("items" in body, "custom-photo-prices has items key")
+
+    step("12) PATCH /custom-requests/{id} happy path (quote_pending)")
+    # 此 request 在 step 9 admin 送過 quote → 狀態變 quote_sent。
+    # 我們建一筆全新的 quote_pending 來測 PATCH。
+    r = await customer.post(
+        f"{BASE}/custom-requests",
+        json={
+            "request_type": "custom_photo",
+            "photo_url": "custom_photos/patch_test.jpg",
+            "canvas_w_cm": 30,
+            "canvas_h_cm": 40,
+            "difficulty": "beginner",
+            "customer_notes": "原本",
+        },
+        headers=_auth_headers(customer),
+    )
+    check(r.status_code == 201, f"create for PATCH test {r.status_code}")
+    patch_rid = r.json()["id"]
+
+    r = await customer.patch(
+        f"{BASE}/custom-requests/{patch_rid}",
+        json={"canvas_w_cm": 50, "canvas_h_cm": 70, "difficulty": "intermediate", "customer_notes": "改大"},
+        headers=_auth_headers(customer),
+    )
+    check(r.status_code == 200, f"PATCH {r.status_code}: {r.text[:200]}")
+    body = r.json()
+    check(body["canvas_w_cm"] == 50 and body["canvas_h_cm"] == 70, f"canvas updated: {body['canvas_w_cm']}x{body['canvas_h_cm']}")
+    check(body["difficulty"] == "intermediate", f"difficulty updated: {body['difficulty']}")
+    check(body["customer_notes"] == "改大", f"notes updated: {body['customer_notes']}")
+
+    step("13) PATCH validation — canvas out of range → 422")
+    r = await customer.patch(
+        f"{BASE}/custom-requests/{patch_rid}",
+        json={"canvas_w_cm": 5},
+        headers=_auth_headers(customer),
+    )
+    check(r.status_code == 422, f"canvas=5 should 422 (got {r.status_code})")
+
+    r = await customer.patch(
+        f"{BASE}/custom-requests/{patch_rid}",
+        json={"canvas_h_cm": 999},
+        headers=_auth_headers(customer),
+    )
+    check(r.status_code == 422, f"canvas=999 should 422 (got {r.status_code})")
+
+    step("14) PATCH validation — notes too long → 422")
+    r = await customer.patch(
+        f"{BASE}/custom-requests/{patch_rid}",
+        json={"customer_notes": "X" * 2001},
+        headers=_auth_headers(customer),
+    )
+    check(r.status_code == 422, f"notes 2001 chars should 422 (got {r.status_code})")
+
+    step("15) PATCH set difficulty to null → 'admin suggest'")
+    r = await customer.patch(
+        f"{BASE}/custom-requests/{patch_rid}",
+        json={"difficulty": None},
+        headers=_auth_headers(customer),
+    )
+    check(r.status_code == 200, f"PATCH null {r.status_code}")
+    check(r.json()["difficulty"] is None, f"difficulty should be null: {r.json()['difficulty']}")
+
+    step("16) PATCH empty body → 200 no-op (no DB write)")
+    r = await customer.patch(
+        f"{BASE}/custom-requests/{patch_rid}",
+        json={},
+        headers=_auth_headers(customer),
+    )
+    check(r.status_code == 200, f"empty PATCH {r.status_code}")
 
     # cleanup
     admin_sse_task.cancel()
