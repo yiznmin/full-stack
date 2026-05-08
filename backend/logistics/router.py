@@ -8,12 +8,16 @@
 """
 import asyncio
 from datetime import datetime
+from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
+from core.database import get_db
+from dependencies.auth import require_admin
 from logistics import service
 
 router = APIRouter(prefix="/logistics", tags=["logistics"])
@@ -413,6 +417,194 @@ def _html_escape(s: str) -> str:
 
 
 # ── Day 3：物流狀態通知 Webhook ─────────────────────────────────────────────
+
+@router.get("/print-shipment-label/{shipment_id}", response_class=HTMLResponse)
+async def print_shipment_label(
+    shipment_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """列印託運單 HTML 頁面（管理員用，瀏覽器開新分頁）.
+
+    依該 Shipment 對應正確的 ECpay 列印 endpoint
+    （HOME 走 /helper/printTradeDocument，CVS C2C 各家獨立）.
+
+    dry_run 模式回 mock 預覽 HTML，不真連 ECpay。
+    """
+    from sqlalchemy import select as _select
+    from orders.models import Shipment, Order
+
+    result = await db.execute(_select(Shipment).where(Shipment.id == shipment_id))
+    shipment = result.scalar_one_or_none()
+    if shipment is None:
+        return HTMLResponse(content="<h1>找不到出貨記錄</h1>", status_code=404)
+    if not shipment.ecpay_logistics_id:
+        return HTMLResponse(
+            content="<h1>此出貨記錄無 ECpay 物流交易編號，無法列印</h1>",
+            status_code=400,
+        )
+
+    order_result = await db.execute(_select(Order).where(Order.id == shipment.order_id))
+    order = order_result.scalar_one_or_none()
+    if order is None:
+        return HTMLResponse(content="<h1>找不到訂單</h1>", status_code=404)
+
+    # 推導 LogisticsType / SubType
+    shipping_type = order.shipping_type
+    if shipping_type == "home":
+        logistics_type = "HOME"
+        logistics_sub_type = "TCAT"
+    else:
+        logistics_type = "CVS"
+        logistics_sub_type = service.SHIPPING_TYPE_TO_SUB_TYPE.get(
+            shipping_type, ("CVS", "UNIMARTC2C")
+        )[1]
+
+    # dry_run mock
+    if settings.ecpay_dry_run:
+        return _mock_print_html(shipment, order, logistics_type, logistics_sub_type)
+
+    # 真實：build form auto-submit 到 ECpay 列印 endpoint
+    try:
+        params = service.build_print_label_form(
+            logistics_type=logistics_type,
+            logistics_sub_type=logistics_sub_type,
+            all_pay_logistics_id=shipment.ecpay_logistics_id,
+            cvs_payment_no=shipment.cvs_payment_no,
+            cvs_validation_no=shipment.cvs_validation_no,
+        )
+    except ValueError as e:
+        return HTMLResponse(content=f"<h1>列印失敗</h1><p>{e}</p>", status_code=400)
+
+    action = service.print_endpoint_url(logistics_type, logistics_sub_type)
+    inputs = "\n".join(
+        f'<input type="hidden" name="{k}" value="{_html_escape(v)}" />'
+        for k, v in params.items()
+    )
+    html = f"""<!doctype html>
+<html lang="zh-TW">
+<head><meta charset="utf-8" /><title>列印託運單…</title>
+<style>
+  body {{ font-family: -apple-system, "Noto Sans TC", sans-serif;
+          background: #F4EFE2; color: #2E2823;
+          display: flex; align-items: center; justify-content: center;
+          min-height: 100vh; margin: 0; }}
+  .box {{ text-align: center; }}
+  .spinner {{ width: 28px; height: 28px;
+              border: 2px solid #8C6E52; border-top-color: transparent;
+              border-radius: 50%; animation: spin 0.8s linear infinite;
+              margin: 0 auto 16px; }}
+  @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+</style></head>
+<body>
+  <div class="box">
+    <div class="spinner"></div>
+    <p>正在前往 ECpay 列印頁面…</p>
+  </div>
+  <form id="ecpay-print-form" method="POST" action="{action}">
+    {inputs}
+  </form>
+  <script>document.getElementById('ecpay-print-form').submit();</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
+def _mock_print_html(shipment, order, logistics_type: str, logistics_sub_type: str) -> "HTMLResponse":
+    """dry_run 模式的列印預覽（不真連 ECpay）."""
+    snapshot = order.shipping_snapshot or {}
+    receiver_name = snapshot.get("recipient_name", "")
+    receiver_phone = snapshot.get("phone", "")
+    receiver_addr = (
+        f"{snapshot.get('city', '')}{snapshot.get('district', '')}{snapshot.get('address_detail', '')}"
+        if logistics_type == "HOME"
+        else snapshot.get("store_name", "")
+    )
+    sub_label = {
+        "TCAT": "黑貓宅急便",
+        "POST": "中華郵政",
+        "UNIMARTC2C": "7-Eleven 交貨便",
+        "FAMIC2C": "全家店到店",
+        "HILIFEC2C": "萊爾富店到店",
+        "OKMARTC2C": "OK 超商店到店",
+    }.get(logistics_sub_type, logistics_sub_type)
+    html = f"""<!doctype html>
+<html lang="zh-TW">
+<head><meta charset="utf-8" /><title>託運單預覽（模擬）</title>
+<style>
+  body {{ font-family: -apple-system, "Noto Sans TC", sans-serif;
+          background: #F4EFE2; color: #2E2823; padding: 40px 20px; }}
+  .label {{ max-width: 600px; margin: 0 auto;
+            background: white; border: 2px solid #2E2823;
+            padding: 32px; border-radius: 8px; }}
+  .header {{ text-align: center; padding-bottom: 16px;
+             border-bottom: 2px dashed #2E2823; margin-bottom: 24px; }}
+  .header h1 {{ margin: 0 0 8px; font-size: 22px; letter-spacing: 0.08em; }}
+  .header .sub {{ font-size: 13px; color: #8C6E52; letter-spacing: 0.18em; }}
+  .row {{ display: grid; grid-template-columns: 100px 1fr; gap: 12px; margin-bottom: 12px; font-size: 13px; }}
+  .row dt {{ color: #6B6660; letter-spacing: 0.08em; }}
+  .row dd {{ color: #2E2823; margin: 0; font-weight: 500; }}
+  .barcode {{ font-family: "Courier New", monospace; font-size: 18px;
+              text-align: center; margin: 24px 0;
+              padding: 12px; background: #F2E8D5;
+              border: 1px dashed #8C6E52; }}
+  .footer {{ margin-top: 24px; padding-top: 16px;
+             border-top: 1px dashed #8C6E52;
+             text-align: center; font-size: 11px; color: #6B6660;
+             letter-spacing: 0.18em; text-transform: uppercase; }}
+  .mock-banner {{ position: fixed; top: 0; left: 0; right: 0;
+                  background: #7B2E40; color: white;
+                  padding: 12px; text-align: center; font-size: 13px;
+                  letter-spacing: 0.18em; }}
+  @media print {{
+    .mock-banner {{ display: none; }}
+    body {{ background: white; padding: 0; }}
+  }}
+  .actions {{ max-width: 600px; margin: 24px auto 0; display: flex; gap: 12px; justify-content: center; }}
+  .actions button {{ padding: 10px 20px; border: 1px solid #2E2823;
+                     background: white; color: #2E2823; cursor: pointer;
+                     font-family: inherit; font-size: 13px; letter-spacing: 0.12em; }}
+  .actions button.primary {{ background: #2E2823; color: white; }}
+  @media print {{ .actions {{ display: none; }} }}
+</style></head>
+<body>
+  <div class="mock-banner">⚠️ 模擬列印（DRY_RUN 模式）— 切到 production 才會印真實託運單</div>
+  <div class="label">
+    <div class="header">
+      <h1>易木 YIIMUI 託運單</h1>
+      <div class="sub">{sub_label}</div>
+    </div>
+    <dl class="row">
+      <dt>訂單編號</dt>
+      <dd>{order.order_number}</dd>
+    </dl>
+    <dl class="row">
+      <dt>託運單號</dt>
+      <dd>{shipment.tracking_number or shipment.ecpay_logistics_id}</dd>
+    </dl>
+    <dl class="row">
+      <dt>收件人</dt>
+      <dd>{_html_escape(receiver_name)}</dd>
+    </dl>
+    <dl class="row">
+      <dt>聯絡電話</dt>
+      <dd>{_html_escape(receiver_phone)}</dd>
+    </dl>
+    <dl class="row">
+      <dt>{ '送達地址' if logistics_type == 'HOME' else '取貨門市' }</dt>
+      <dd>{_html_escape(receiver_addr)}</dd>
+    </dl>
+    <div class="barcode">|||| {shipment.tracking_number or 'DRY-MOCK'} ||||</div>
+    <div class="footer">— ECpay 物流系統（模擬模式）—</div>
+  </div>
+  <div class="actions">
+    <button onclick="window.print()" class="primary">列印</button>
+    <button onclick="window.close()">關閉</button>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
 
 @router.post("/status-callback")
 async def status_callback(request: Request):

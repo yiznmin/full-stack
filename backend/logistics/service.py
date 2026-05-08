@@ -246,6 +246,76 @@ def query_endpoint_url() -> str:
     return f"{_ecpay_base_url()}/Helper/QueryLogisticsTradeInfo/V5"
 
 
+# ── 列印託運單 endpoints (Day 4) ─────────────────────────────────────────────
+# 依物流類型不同 endpoint：
+#   HOME (TCAT/POST) + B2C 通用：/helper/printTradeDocument
+#   CVS C2C 各家獨立 endpoint，且需要 CVSPaymentNo + CVSValidationNo
+# 文件來源：
+#   /8875/ HOME B2C 列印
+#   /7406/ 7-Eleven C2C 列印
+#   /8848/ 全家 C2C 列印（同模式不同 path）
+
+PRINT_ENDPOINTS = {
+    # HOME（黑貓 / 中華郵政）+ B2C 通用
+    "_home_b2c": "/helper/printTradeDocument",
+    # CVS C2C 列印 endpoint（單筆 + 需驗證碼）
+    "UNIMARTC2C": "/Express/PrintUniMartC2COrderInfo",
+    "FAMIC2C": "/Express/PrintFAMIC2COrderInfo",
+    "HILIFEC2C": "/Express/PrintHILIFEC2COrderInfo",
+    "OKMARTC2C": "/Express/PrintOKMARTC2COrderInfo",
+}
+
+
+def print_endpoint_url(logistics_type: str, logistics_sub_type: str) -> str:
+    """依物流類型回對應的列印 endpoint."""
+    base = _ecpay_base_url()
+    # CVS C2C 各家獨立 endpoint
+    if logistics_sub_type in PRINT_ENDPOINTS:
+        return f"{base}{PRINT_ENDPOINTS[logistics_sub_type]}"
+    # HOME 或其他 → 共用 B2C endpoint
+    return f"{base}{PRINT_ENDPOINTS['_home_b2c']}"
+
+
+def build_print_label_form(
+    *,
+    logistics_type: str,
+    logistics_sub_type: str,
+    all_pay_logistics_id: str,
+    cvs_payment_no: str | None = None,
+    cvs_validation_no: str | None = None,
+    print_mode: int = 1,  # 1=A4, 2=A6 熱感應
+) -> dict[str, str]:
+    """組列印託運單需要的 form 參數（含 CheckMacValue）.
+
+    HOME / B2C 只需 MerchantID + AllPayLogisticsID + CheckMacValue
+    CVS C2C 還需 CVSPaymentNo + CVSValidationNo（看各家規範略有差異）
+    """
+    if not settings.ecpay_merchant_id:
+        raise ValueError("ECPAY_MERCHANT_ID 未設定")
+    if not all_pay_logistics_id:
+        raise ValueError("AllPayLogisticsID 必填")
+
+    params: dict[str, str] = {
+        "MerchantID": settings.ecpay_merchant_id,
+        "AllPayLogisticsID": all_pay_logistics_id,
+    }
+
+    is_cvs_c2c = logistics_sub_type in (
+        "UNIMARTC2C", "FAMIC2C", "HILIFEC2C", "OKMARTC2C",
+    )
+    if is_cvs_c2c:
+        if not cvs_payment_no or not cvs_validation_no:
+            raise ValueError("CVS C2C 列印必須提供 CVSPaymentNo 與 CVSValidationNo")
+        params["CVSPaymentNo"] = cvs_payment_no
+        params["CVSValidationNo"] = cvs_validation_no
+    else:
+        # HOME / B2C：可選擇 PrintMode
+        params["PrintMode"] = str(print_mode)
+
+    params["CheckMacValue"] = calculate_check_mac_value(params)
+    return params
+
+
 def build_query_form(
     *,
     all_pay_logistics_id: str | None = None,

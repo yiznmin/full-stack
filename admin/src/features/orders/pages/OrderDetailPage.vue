@@ -14,6 +14,8 @@ import {
   Check,
   Pencil,
   X,
+  Printer,
+  ExternalLink,
 } from 'lucide-vue-next'
 
 import Card from '@/shared/ui/Card.vue'
@@ -521,6 +523,20 @@ function copyOrderNumber() {
               重新查詢狀態
             </Button>
           </div>
+          <!-- HOME 提醒：建單後要自己預約黑貓 -->
+          <div
+            v-if="order.shipping_type === 'home' && order.shipments.length > 0"
+            class="mb-3 px-3 py-2.5 bg-state-warning/[0.10] border border-state-warning/40 rounded-[var(--radius-xs)] text-[12px] text-ink-default leading-[1.7]"
+          >
+            <strong class="text-state-warning">⚠️ 宅配出貨提醒：</strong>
+            ECpay 不會自動派司機。請在列印託運單後到
+            <a href="https://www.t-cat.com.tw/" target="_blank" rel="noopener" class="text-accent hover:text-accent-deep underline">
+              黑貓宅急便官網
+              <ExternalLink :size="11" :stroke-width="1.5" class="inline" />
+            </a>
+            預約上門收件，或直接拿包裹至黑貓營業所／7-11 黑貓接點。
+          </div>
+
           <div v-if="order.shipments.length === 0" class="text-[13px] text-ink-muted">
             尚未建立任何出貨批次
           </div>
@@ -567,16 +583,31 @@ function copyOrderNumber() {
                 </template>
               </div>
 
-              <!-- HOME：託運單號 + 黑貓 / 郵政查詢連結 -->
-              <div v-else-if="s.tracking_number" class="mt-2 flex items-center gap-3 flex-wrap">
-                <div class="font-mono text-[12px] text-ink-strong">託運單號 {{ s.tracking_number }}</div>
-                <a
-                  v-if="order.shipping_type === 'home'"
-                  :href="`https://www.t-cat.com.tw/Inquire/Trace.aspx?BillID=${encodeURIComponent(s.tracking_number)}`"
-                  target="_blank"
-                  rel="noopener"
-                  class="text-[11px] tracking-[0.12em] uppercase text-accent hover:text-accent-deep transition-colors"
-                >黑貓物流查詢 →</a>
+              <!-- HOME：託運單號 + 黑貓 / 郵政查詢連結 + 列印 + 預約 hint -->
+              <div v-else-if="s.tracking_number" class="mt-2 space-y-2">
+                <div class="flex items-center gap-3 flex-wrap">
+                  <div class="font-mono text-[12px] text-ink-strong">託運單號 {{ s.tracking_number }}</div>
+                  <a
+                    v-if="order.shipping_type === 'home'"
+                    :href="`https://www.t-cat.com.tw/Inquire/Trace.aspx?BillID=${encodeURIComponent(s.tracking_number)}`"
+                    target="_blank"
+                    rel="noopener"
+                    class="text-[11px] tracking-[0.12em] uppercase text-accent hover:text-accent-deep transition-colors"
+                  >黑貓物流查詢 →</a>
+                </div>
+                <!-- HOME：列印託運單 + 預約黑貓 hint -->
+                <div v-if="order.shipping_type === 'home'" class="flex items-center gap-2 flex-wrap">
+                  <a
+                    :href="`/api/v1/logistics/print-shipment-label/${s.id}`"
+                    target="_blank"
+                    rel="noopener"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-strong text-paper-canvas text-[12px] rounded-[var(--radius-xs)] hover:bg-accent-deep transition-colors"
+                  >
+                    <Printer :size="13" :stroke-width="1.5" />
+                    列印託運單
+                  </a>
+                  <span class="text-[11px] text-ink-muted">列印貼包裹後，請至黑貓官網／App 預約上門收件</span>
+                </div>
               </div>
 
               <!-- 最新 ECpay 狀態 -->
