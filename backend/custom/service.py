@@ -175,6 +175,18 @@ def _hash_token(plain: str) -> str:
     return hashlib.sha256(plain.encode()).hexdigest()
 
 
+def _publish_to_admin(event_type: str, data: dict) -> None:
+    """SSE publish helper — admin 全局訂閱者。"""
+    from custom.sse import hub
+    hub.publish_to_admin(event_type, data)
+
+
+def _publish_to_customer(request_id: UUID, event_type: str, data: dict) -> None:
+    """SSE publish helper — 該 request 的客戶訂閱者。"""
+    from custom.sse import hub
+    hub.publish_to_customer(request_id, event_type, data)
+
+
 async def _send_email(to: str, subject: str, html: str) -> None:
     try:
         import resend
@@ -273,6 +285,15 @@ async def create_custom_request(
 
     await db.commit()
     await db.refresh(req)
+
+    # SSE: 通知 admin 有新申請
+    _publish_to_admin("new_request", {
+        "request_id": str(req.id),
+        "request_type": _enum_val(req.request_type),
+        "user_id": str(user_id),
+        "created_at": req.created_at.isoformat() if req.created_at else None,
+    })
+
     return req
 
 
@@ -346,6 +367,19 @@ async def post_customer_message(
 
     await db.commit()
     await db.refresh(msg)
+
+    # SSE: 通知 admin（全局）有新客戶訊息
+    payload = {
+        "request_id": str(request_id),
+        "message_id": str(msg.id),
+        "sender_type": "customer",
+        "message": msg.message,
+        "image_url": msg.image_url,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+    }
+    _publish_to_admin("new_message", payload)
+    # SSE: 通知該 request 的訂閱者（同 user 多分頁）
+    _publish_to_customer(request_id, "new_message", payload)
     return msg
 
 
@@ -371,6 +405,64 @@ async def update_photo(
     req.photo_url = photo_url
     await db.commit()
     await db.refresh(req)
+
+    # SSE: 通知 admin 客戶已更換照片
+    _publish_to_admin("photo_updated", {
+        "request_id": str(request_id),
+        "photo_url": photo_url,
+    })
+    return req
+
+
+async def update_request_fields(
+    db: AsyncSession,
+    user_id: UUID,
+    request_id: UUID,
+    changes: dict,
+) -> CustomRequest:
+    """quote_pending 狀態下客戶修改尺寸 / 難度 / 備註。
+
+    照片用獨立 PATCH /photo endpoint。
+    negotiating 後鎖定（409）— 跟 PATCH /photo 相同邏輯。
+    """
+    result = await db.execute(
+        select(CustomRequest).where(
+            CustomRequest.id == request_id, CustomRequest.user_id == user_id
+        ).with_for_update()
+    )
+    req = result.scalar_one_or_none()
+    if req is None:
+        raise NotFoundError("客製申請不存在")
+    if req.status != CustomRequestStatusEnum.quote_pending:
+        raise ConflictError(
+            "申請已進入洽談階段，無法修改",
+            code="REQUEST_LOCKED_AFTER_NEGOTIATING",
+        )
+
+    # 空 body → no-op：直接 return 不 commit（避免無意義的 onupdate timestamp 跳動）
+    if not changes:
+        return req
+
+    # 應用變更（model_fields_set 過濾過：只動實際送出的欄位）
+    if "difficulty" in changes:
+        from production.models import DifficultyEnum
+        v = changes["difficulty"]
+        req.difficulty = DifficultyEnum(v) if v else None
+    if "canvas_w_cm" in changes:
+        req.canvas_w_cm = changes["canvas_w_cm"]
+    if "canvas_h_cm" in changes:
+        req.canvas_h_cm = changes["canvas_h_cm"]
+    if "customer_notes" in changes:
+        req.customer_notes = changes["customer_notes"]
+
+    await db.commit()
+    await db.refresh(req)
+
+    # SSE: 通知 admin 客戶改了規格
+    _publish_to_admin("request_updated", {
+        "request_id": str(request_id),
+        "changes": list(changes.keys()),
+    })
     return req
 
 
@@ -679,6 +771,21 @@ async def confirm_quote(
     )
 
     await db.commit()
+
+    # SSE: 通知 admin 客戶已確認報價
+    _publish_to_admin("quote_confirmed", {
+        "request_id": str(req.id),
+        "order_id": str(order.id),
+        "order_number": order_number,
+        "status": _enum_val(req.status),
+    })
+    # SSE: 同時通知 customer SSE（自己的別分頁也需即時換 status badge）
+    _publish_to_customer(req.id, "status_changed", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+        "order_id": str(order.id),
+    })
+
     return {
         "order_id": order.id,
         "order_number": order_number,
@@ -717,6 +824,17 @@ async def reject_quote(
 
     await db.commit()
     await db.refresh(req)
+
+    # SSE: 通知 admin 客戶已拒絕報價
+    _publish_to_admin("quote_rejected", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+        "rejected_at": req.rejected_at.isoformat() if req.rejected_at else None,
+    })
+    _publish_to_customer(req.id, "status_changed", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+    })
     return req
 
 
@@ -780,6 +898,19 @@ async def request_revision(
 
     await db.commit()
     await db.refresh(req)
+
+    # SSE: 通知 admin 客戶要求修改
+    _publish_to_admin("revision_requested", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+        "revision_count": req.revision_count,
+        "reason": reason,
+    })
+    _publish_to_customer(req.id, "status_changed", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+        "revision_count": req.revision_count,
+    })
     return req
 
 
@@ -878,6 +1009,16 @@ async def admin_post_message(
 
     await db.commit()
     await db.refresh(msg)
+
+    # SSE: 通知 customer admin 已回覆
+    _publish_to_customer(request_id, "new_message", {
+        "request_id": str(request_id),
+        "message_id": str(msg.id),
+        "sender_type": "admin",
+        "message": msg.message,
+        "image_url": msg.image_url,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+    })
     return msg
 
 
@@ -898,6 +1039,16 @@ async def admin_mark_negotiating(
 
     await db.commit()
     await db.refresh(req)
+
+    # SSE: 通知 customer 申請已進入洽談階段（會鎖照片更換 UI）
+    _publish_to_customer(req.id, "status_changed", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+    })
+    _publish_to_admin("status_changed", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+    })
     return req
 
 
@@ -960,6 +1111,19 @@ async def admin_send_quote(
 
     await db.commit()
     await db.refresh(req)
+
+    # SSE: 通知 customer 報價已送達（觸發前端 toast + 自動跳 QuotePage CTA）
+    _publish_to_customer(req.id, "quote_sent", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+        "quoted_price": float(req.quoted_price),
+        "quote_expires_at": req.quote_expires_at.isoformat() if req.quote_expires_at else None,
+    })
+    _publish_to_admin("quote_sent", {
+        "request_id": str(req.id),
+        "status": _enum_val(req.status),
+        "quoted_price": float(req.quoted_price),
+    })
     return req, plain_token
 
 
@@ -1115,6 +1279,17 @@ async def expire_quotes_async(db: AsyncSession) -> int:
         )
 
     await db.commit()
+
+    # SSE: 通知 customer 報價已逾期（前端切到「重新申請」CTA）
+    for req in expired:
+        _publish_to_customer(req.id, "status_changed", {
+            "request_id": str(req.id),
+            "status": _enum_val(req.status),
+        })
+        _publish_to_admin("quote_expired", {
+            "request_id": str(req.id),
+            "status": _enum_val(req.status),
+        })
     return len(expired)
 
 

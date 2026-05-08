@@ -175,3 +175,29 @@ class PhotoSignedUrlResponse(BaseModel):
 class StatusUpdateResponse(BaseModel):
     id: UUID
     status: str
+
+
+# ── Public reference data（CustomPage 表單下拉 + PriceRangeHint）──────────────
+
+
+class CanvasSizeItem(BaseModel):
+    id: UUID
+    canvas_w_cm: int
+    canvas_h_cm: int
+    display_name: str
+
+
+class CanvasSizeListResponse(BaseModel):
+    items: list[CanvasSizeItem]
+
+
+class PhotoPriceItem(BaseModel):
+    id: UUID
+    canvas_w: int
+    canvas_h: int
+    difficulty: str
+    price: float | None
+
+
+class PhotoPriceListResponse(BaseModel):
+    items: list[PhotoPriceItem]

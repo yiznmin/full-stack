@@ -1,18 +1,23 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
+
+# 客製欄位驗證界線（與 pricing_formula.md 與 canvas_sizes 上限對齊）
+CANVAS_MIN_CM = 10
+CANVAS_MAX_CM = 200
+NOTES_MAX_LEN = 2000
 
 
 class CreateCustomRequestRequest(BaseModel):
     request_type: Literal["custom_photo", "custom_spec"]
     photo_url: str | None = None
     ref_product_id: UUID | None = None
-    canvas_w_cm: int | None = None
-    canvas_h_cm: int | None = None
+    canvas_w_cm: int | None = Field(default=None, ge=CANVAS_MIN_CM, le=CANVAS_MAX_CM)
+    canvas_h_cm: int | None = Field(default=None, ge=CANVAS_MIN_CM, le=CANVAS_MAX_CM)
     difficulty: Literal["beginner", "elementary", "intermediate", "advanced"] | None = None
     detail: Literal["rough", "standard", "detailed", "premium"] | None = None
-    customer_notes: str | None = None
+    customer_notes: str | None = Field(default=None, max_length=NOTES_MAX_LEN)
     parent_request_id: UUID | None = None
 
     @model_validator(mode="after")
@@ -45,6 +50,26 @@ class UpdatePhotoRequest(BaseModel):
         if not self.photo_url.strip():
             raise ValueError("photo_url 不可為空")
         return self
+
+
+class UpdateRequestFieldsRequest(BaseModel):
+    """quote_pending 狀態下客戶修改申請內容（照片以外）。
+
+    所有欄位皆 optional — 只送要改的；空 body = no-op 200。
+    photo 用獨立 PATCH /photo endpoint，不在這裡。
+    """
+    canvas_w_cm: int | None = Field(default=None, ge=CANVAS_MIN_CM, le=CANVAS_MAX_CM)
+    canvas_h_cm: int | None = Field(default=None, ge=CANVAS_MIN_CM, le=CANVAS_MAX_CM)
+    difficulty: Literal["beginner", "elementary", "intermediate", "advanced"] | None = None
+    customer_notes: str | None = Field(default=None, max_length=NOTES_MAX_LEN)
+
+    # 用 dict 區分「沒送」vs「送了 null（要改成 null）」
+    # pydantic v2 model_fields_set 提供
+    def changes(self) -> dict:
+        out: dict = {}
+        for f in self.model_fields_set:
+            out[f] = getattr(self, f)
+        return out
 
 
 class ConfirmQuoteRequest(BaseModel):

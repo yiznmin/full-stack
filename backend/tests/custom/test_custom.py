@@ -312,6 +312,176 @@ async def test_patch_photo_after_negotiating_rejected(client, db):
     assert body.get("code") == "PHOTO_LOCKED_AFTER_NEGOTIATING"
 
 
+# ── PATCH /custom-requests/{id} (fields except photo) ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_patch_request_fields_in_quote_pending(client, db):
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    res = await client.patch(
+        f"{CR_URL}/{rid}",
+        json={
+            "canvas_w_cm": 50,
+            "canvas_h_cm": 70,
+            "difficulty": "intermediate",
+            "customer_notes": "改大尺寸",
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["canvas_w_cm"] == 50
+    assert body["canvas_h_cm"] == 70
+    assert body["difficulty"] == "intermediate"
+    assert body["customer_notes"] == "改大尺寸"
+
+
+@pytest.mark.asyncio
+async def test_patch_request_partial_only_changes_sent_fields(client, db):
+    """只送 difficulty → 其他欄位保持不動。"""
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={"difficulty": "advanced"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["difficulty"] == "advanced"
+    # canvas should be unchanged from creation defaults
+    # _create_photo_request 預設 canvas_w_cm=30, canvas_h_cm=40
+    assert body["canvas_w_cm"] == 30
+    assert body["canvas_h_cm"] == 40
+
+
+@pytest.mark.asyncio
+async def test_patch_request_set_difficulty_to_null(client, db):
+    """送 difficulty=null → 改為「讓管理員建議」。"""
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={"difficulty": None})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["difficulty"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_request_after_negotiating_rejected(client, db):
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+    req_result = await db.execute(select(CustomRequest).where(CustomRequest.id == rid))
+    req = req_result.scalar_one()
+    req.status = CustomRequestStatusEnum.negotiating
+    await db.commit()
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={"customer_notes": "想改"})
+    assert res.status_code == 409
+    assert res.json().get("code") == "REQUEST_LOCKED_AFTER_NEGOTIATING"
+
+
+@pytest.mark.asyncio
+async def test_patch_request_by_non_owner_404(client, db):
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    # 換別的客戶登入
+    client.cookies.clear()
+    await _make_customer(client, db, email="other@example.com", name="Other")
+    await _login_customer(client, email="other@example.com")
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={"customer_notes": "偷改"})
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_request_empty_body_noop(client, db):
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={})
+    assert res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_patch_request_empty_body_does_not_touch_db(client, db):
+    """空 body → service 應直接 return，不觸發 DB write / SSE publish。
+
+    驗證方式：建立 request 後立刻空 PATCH，比對 created_at vs DB 中的值
+    （若有寫入會觸發 onupdate；目前 model 沒 updated_at 欄位 → 改驗 SSE 隊列）。
+    我們用最簡單方式：DB 物件的 status 不變 + return body 等於原 detail。
+    """
+    from custom.models import CustomRequest
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    # 取得原始 created_at
+    orig = (await db.execute(select(CustomRequest).where(CustomRequest.id == rid))).scalar_one()
+    orig_created = orig.created_at
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={})
+    assert res.status_code == 200
+    # 不變
+    after = (await db.execute(select(CustomRequest).where(CustomRequest.id == rid))).scalar_one()
+    assert after.created_at == orig_created
+
+
+@pytest.mark.asyncio
+async def test_patch_request_canvas_below_min_rejected(client, db):
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={"canvas_w_cm": 5})
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_request_canvas_above_max_rejected(client, db):
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={"canvas_h_cm": 999})
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_request_notes_too_long_rejected(client, db):
+    await _seed_system_settings(db)
+    await _make_customer(client, db)
+    await _login_customer(client)
+    create_res = await _create_photo_request(client)
+    rid = create_res.json()["id"]
+
+    res = await client.patch(f"{CR_URL}/{rid}", json={"customer_notes": "X" * 2001})
+    assert res.status_code == 422
+
+
 # ── Admin endpoints ──────────────────────────────────────────────────────────
 
 

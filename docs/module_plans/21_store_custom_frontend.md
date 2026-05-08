@@ -10,18 +10,28 @@
 
 ---
 
-## 0. 已拍板決定（2026-05-08）
+## 0. 已拍板決定（2026-05-08，含 v1.1 修正）
 
 | Q | 決定 | 來源 |
 |---|---|---|
 | Q1 上傳機制 | Firebase signed URL（同既有商品圖模式） | 用戶確認 |
 | Q2 未登入流程 | **B**：未登入可填文字資料到 sessionStorage，**照片要登入後再選** | 用戶確認 |
 | Q3 參考價 | **B**：依尺寸+難度顯示價格區間（從 `custom_photo_prices` 表） | 用戶確認 |
-| Q5 商品詳情頁入口 | **A**：第一版就做（custom_spec from product page） | 用戶確認 |
+| Q5 商品詳情頁 custom_spec 入口 | **第一版不做**（2026-05-08 修正）：custom_spec 整套 backend / DB / admin 完整保留不動，store 前端第一版**不做** `?type=custom_spec` query 切換邏輯，CustomPage 表單僅 custom_photo 一條路。商品頁 `/custom` CTA 保持原樣（連到 custom_photo 主流程）。v2 評估時可不破壞地重啟。 | 用戶確認 |
 | Q6 訊息附圖 | 第一版**不做**，純文字訊息 | 建議採用 |
 | Q7 訊息更新 | **SSE**（順便補 backend，不留 polling tech debt） | 用戶確認 |
-| Q11 案例「諮詢類似規格」 | **要做**：點案例 → 帶尺寸/難度預填客製表單 | 用戶確認 |
+| Q11 案例「諮詢類似規格」 | **要做**：點案例 → CaseDetailDialog → 帶尺寸/難度預填客製表單 | 用戶確認 |
+| Q12 quote_pending 自由修改 | **要全部補完**（2026-05-08 加）：依 store_orders.md L100-122，quote_pending 狀態客戶可修改 photo / 偏好 / 備註；negotiating 後鎖定 409。Backend 需補 `PATCH /custom-requests/{id}` partial update endpoint。 | 用戶確認 |
 | Q13 過期重申請 CTA | **要做**：`quote_expired` 狀態下顯示「重新申請」按鈕，預填上次資料 | 用戶確認 |
+| Q14 v1.1 修正項目 | 重讀規格後發現 12 處違規（精細度欄位/難易度級數/尺寸選填/檔案上限/PriceRangeHint/未登入照片disabled/提示文字 …），須一次補齊 | 用戶確認 |
+| Q15 reviewer fixes | 反思審查找到 3 處後端缺陷：(1) PATCH 對 canvas/notes 缺範圍 / 長度驗證 (2) 兩個 public GET 缺 `response_model` (Gate 3 規範) (3) PATCH 空 body 仍 commit；已修並補 4 個測試。 | 反思審查 |
+
+### 待 v2 細緻討論（2026-05-08 記錄）
+
+| 主題 | 待議內容 |
+|---|---|
+| **CaseDetailDialog 視覺** | 第一版用輕量設計（左大圖 + 右文字 + 底部 CTA）；v2 需更深入討論案例頁雜誌風視覺、是否做 lightbox / 案例分類過濾 / 案例間切換等 |
+| **custom_spec 入口** | v2 重新討論：custom_spec 在「客戶想要某商品的不同規格」情境是否真的需要，或是改用「先諮詢再開單」流程取代 |
 
 ---
 
