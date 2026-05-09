@@ -55,6 +55,61 @@ def upload_public_file_server_side(
     }
 
 
+def copy_blob_to_public_prefix(source_url: str, prefix: str) -> dict:
+    """把任意 Firebase blob server-side 複製到 public prefix，注入 download token。
+
+    支援 source_url 格式：
+    - gs://bucket/path
+    - https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded_path>?alt=media
+    - https://storage.googleapis.com/<bucket>/<path>?<query>（同 bucket 簽章 URL）
+
+    用途：admin「從製作任務帶入」案例封面 — production_jobs/** 路徑 storage rules
+    不公開讀（403），需要先 copy 到 case_images/** 公開區才能用作案例封面。
+    """
+    bucket = get_bucket()
+
+    # 解析 source path
+    src_path: str | None = None
+    if source_url.startswith("gs://"):
+        bucket_and_path = source_url[len("gs://"):]
+        _, _, src_path = bucket_and_path.partition("/")
+    elif "firebasestorage.googleapis.com/v0/b/" in source_url:
+        # https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded_path>?alt=media...
+        import re
+        m = re.search(r"/o/([^?]+)", source_url)
+        if m:
+            src_path = urllib.parse.unquote(m.group(1))
+    elif "storage.googleapis.com/" in source_url:
+        # https://storage.googleapis.com/<bucket>/<path>?<query>
+        m = source_url.split("storage.googleapis.com/", 1)[1]
+        _, _, rest = m.partition("/")
+        src_path = rest.split("?", 1)[0]
+
+    if not src_path:
+        raise ValueError(f"無法從 source_url 解出 blob 路徑：{source_url}")
+
+    src_blob = bucket.blob(src_path)
+    if not src_blob.exists():
+        raise ValueError(f"來源 blob 不存在：{src_path}")
+
+    # 目的 path：複用原檔名（取 basename），加 uuid 前綴避免衝突
+    src_filename = src_path.rsplit("/", 1)[-1]
+    safe = _safe_name(src_filename)
+    dst_path = f"{prefix}/{uuid.uuid4().hex}_{safe}"
+
+    # server-side copy（同 bucket 內，O(1) 不傳 bytes）
+    new_blob = bucket.copy_blob(src_blob, bucket, dst_path)
+
+    # 設 download token + 保留 source 的 content_type
+    download_token = uuid.uuid4().hex
+    new_blob.metadata = {"firebaseStorageDownloadTokens": download_token}
+    new_blob.patch()
+
+    return {
+        "public_url": _firebase_download_url(bucket.name, dst_path, download_token),
+    }
+
+
 def generate_public_signed_url(
     prefix: str, filename: str, content_type: str = "image/jpeg",
 ) -> dict:

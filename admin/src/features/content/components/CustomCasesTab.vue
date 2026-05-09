@@ -26,6 +26,7 @@ import {
   DIFFICULTY_LABEL,
   uploadCaseImage,
   listAvailableJobsForCase,
+  copyJobImageToCase,
   type CustomCase,
   type Difficulty,
   type AvailableJob,
@@ -138,15 +139,32 @@ function openJobPicker() {
   jobPickerOpen.value = true
 }
 
-function pickJob() {
+const isCopyingFromJob = ref(false)
+async function pickJob() {
   const job = jobs.value.find((j) => j.id === selectedJobId.value)
-  if (!job) return
-  // 把 job cover 加進 images（不取代既有）；同時自動帶入規格欄位
-  if (job.cover_url) fImages.value.push({ image_url: job.cover_url })
-  if (!fCanvasW.value) fCanvasW.value = String(job.canvas_w_cm)
-  if (!fCanvasH.value) fCanvasH.value = String(job.canvas_h_cm)
-  if (!fDifficulty.value) fDifficulty.value = job.difficulty
-  jobPickerOpen.value = false
+  if (!job?.cover_url) return
+
+  // production_jobs/** 不公開讀，必須 server-side copy 到 case_images/
+  // 才能用作前端 <img> 載入的封面。
+  isCopyingFromJob.value = true
+  uploadError.value = null
+  try {
+    const publicUrl = await copyJobImageToCase(job.cover_url)
+    // 同時用 preview_url（job picker 顯示時的 signed URL）做瞬間預覽，
+    // image_url 用 server-side copy 出來的永久 case_images URL
+    fImages.value.push({
+      image_url: publicUrl,
+      preview_url: job.preview_url || undefined,
+    })
+    if (!fCanvasW.value) fCanvasW.value = String(job.canvas_w_cm)
+    if (!fCanvasH.value) fCanvasH.value = String(job.canvas_h_cm)
+    if (!fDifficulty.value) fDifficulty.value = job.difficulty
+    jobPickerOpen.value = false
+  } catch (err) {
+    uploadError.value = (err as { message?: string }).message || '複製失敗'
+  } finally {
+    isCopyingFromJob.value = false
+  }
 }
 
 watch(
@@ -576,9 +594,18 @@ const categoryById = computed(() => {
       </ul>
     </div>
     <template #footer>
-      <Button variant="secondary" @click="jobPickerOpen = false">取消</Button>
-      <Button variant="primary" :disabled="!selectedJobId" @click="pickJob">
-        套用此 job
+      <Button
+        variant="secondary"
+        :disabled="isCopyingFromJob"
+        @click="jobPickerOpen = false"
+      >取消</Button>
+      <Button
+        variant="primary"
+        :disabled="!selectedJobId || isCopyingFromJob"
+        @click="pickJob"
+      >
+        <Loader2 v-if="isCopyingFromJob" :size="14" :stroke-width="1.5" class="animate-spin" />
+        {{ isCopyingFromJob ? '複製到公開區…' : '套用此 job' }}
       </Button>
     </template>
   </Dialog>

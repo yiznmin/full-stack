@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from pydantic import BaseModel
 
 from core.exceptions import BadRequestError
 from dependencies.auth import require_admin, require_auth
@@ -101,6 +102,42 @@ async def upload_case_image_direct(
     }
 
 
+# ── 從 production_job 帶入封面：copy 到 case_images 公開區 ─────────────
+
+
+class CopyJobImageRequest(BaseModel):
+    source_url: str  # job 的 cover_url 或 preview_url 或 gs:// path 都接受
+
+
+@router.post(
+    "/upload/case-image-from-job",
+    response_model=CaseImageDirectResponse,
+    description=(
+        "Admin「從製作任務帶入」案例封面：後端 server-side copy 該 production_job 的"
+        "filled image 到 case_images/ 公開區，並注入 download token。"
+        "原因：production_jobs/** 在 Firebase Storage rules 是非公開讀（403），"
+        "直接拿 cover_url 給前端 <img> 會 403 破圖。"
+    ),
+)
+async def case_image_from_job(
+    body: CopyJobImageRequest,
+    _=Depends(require_admin),
+):
+    from datetime import UTC, datetime, timedelta
+    try:
+        result = upload_service.copy_blob_to_public_prefix(
+            body.source_url, "case_images"
+        )
+    except ValueError as e:
+        raise BadRequestError(str(e), code="COPY_FAILED") from e
+
+    return {
+        "upload_url": result["public_url"],
+        "public_url": result["public_url"],
+        "expires_at": datetime.now(UTC) + timedelta(days=36500),
+    }
+
+
 @router.post("/upload/custom-photo", response_model=PrivateUploadResponse)
 async def upload_custom_photo(
     body: UploadImageRequest,
@@ -126,6 +163,7 @@ async def migrate_product_images(
     customer 看商品時會 ORB 擋住。這個 endpoint 一次性把所有舊紀錄修好。
     """
     from sqlalchemy import select
+
     from product.models import Product, ProductImage
     from product.service import _maybe_repath_to_public
 
@@ -189,9 +227,9 @@ async def firebase_cors_fix(_=Depends(require_admin)):
     Firebase 新版 .firebasestorage.app bucket 的 CORS 透過 Admin SDK 設定可能不持久。
     這裡用 google-cloud-storage SDK 直接操作 GCS bucket，更可靠。
     """
+    import base64
     import json as _json
     import os
-    import base64
 
     from google.cloud import storage
     from google.oauth2 import service_account
@@ -220,7 +258,7 @@ async def firebase_cors_fix(_=Depends(require_admin)):
         if v.startswith("{"):
             cred_json = _json.loads(v)
         else:
-            with open(v, "r") as f:
+            with open(v) as f:
                 cred_json = _json.load(f)
 
     if not cred_json:

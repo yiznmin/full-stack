@@ -267,6 +267,21 @@ export function listAvailableJobsForCase() {
   return request<{ items: AvailableJob[] }>('/admin/production/jobs/available-for-variant')
 }
 
+/**
+ * 從 production_job 帶入案例封面：後端會 server-side copy 該 job 的圖到
+ * case_images/ 公開區並注入 download token。回傳 100% 可讀的永久 URL。
+ *
+ * 為什麼需要這層：production_jobs/** 路徑 Firebase Storage rules 是非公開讀
+ * （403），直接拿 cover_url 給 <img> 會破圖。複製到 case_images/ 後才可讀。
+ */
+export async function copyJobImageToCase(sourceUrl: string): Promise<string> {
+  const r = await request<{ public_url: string }>('/upload/case-image-from-job', {
+    method: 'POST',
+    body: JSON.stringify({ source_url: sourceUrl }),
+  })
+  return r.public_url
+}
+
 // ── Labels ────────────────────────────────────────────────────────────
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
