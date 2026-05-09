@@ -638,7 +638,7 @@ async def test_confirm_received_success(client, db):
 
     await _login_customer(client)
     res = await client.post(f"{ORDERS_URL}/{order_id}/confirm-received")
-    assert res.status_code == 200
+    assert res.status_code == 200, f"got {res.status_code}: {res.text}"
 
     order_res = await db.execute(select(Order).where(Order.id == order_id))
     order = order_res.scalar_one()

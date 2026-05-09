@@ -70,9 +70,17 @@ class CustomRequest(Base):
     # admin 在 QuoteDialog 選定的 production_job — 綁這個 job 的 filled_template
     # 給客戶看 + 用該 job 的 canvas / difficulty / detail 作為最終規格。
     # nullable：舊資料未綁；customer 端 quote_summary fallback 到「最新一筆 filled」。
+    # use_alter：production_jobs.custom_request_id 反向也指 custom_requests，造成
+    # circular FK，metadata.drop_all 排序會失敗；use_alter + name 讓 SQLAlchemy 用
+    # 獨立 ALTER TABLE 處理，正確排序 drop/create。
     quoted_production_job_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("production_jobs.id", ondelete="SET NULL"),
+        ForeignKey(
+            "production_jobs.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_custom_requests_quoted_production_job",
+        ),
         nullable=True,
     )
     admin_notes = Column(Text, nullable=True)

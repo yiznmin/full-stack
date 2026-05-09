@@ -608,6 +608,33 @@ async def _revert_order_effects(db: AsyncSession, order: Order) -> None:
     await discount_svc.revoke_reward_coupons(
         db, order.id, refund_amount=float(order.total), order_total=float(order.total)
     )
+    # 客製訂單取消 → 還原 custom_request 狀態（quote_confirmed → quote_sent，
+    # 客戶可重新申請或續用原報價在 expires_at 內加進購物車再買）
+    await _revert_custom_requests_for_order(db, order.id)
+
+
+async def _revert_custom_requests_for_order(db: AsyncSession, order_id: UUID) -> None:
+    """訂單取消/退款 → 把該訂單包含的客製申請 status 從 quote_confirmed 退回
+    quote_sent + 解綁 order_id，讓客戶可重新申請或繼續報價（若 expires_at 還沒過）。
+    """
+    from custom.models import CustomRequest, CustomRequestStatusEnum  # noqa: PLC0415
+
+    custom_request_ids = (await db.execute(
+        select(OrderItem.custom_request_id)
+        .where(OrderItem.order_id == order_id, OrderItem.custom_request_id.isnot(None))
+    )).scalars().all()
+    if not custom_request_ids:
+        return
+
+    await db.execute(
+        update(CustomRequest)
+        .where(
+            CustomRequest.id.in_(custom_request_ids),
+            CustomRequest.order_id == order_id,
+            CustomRequest.status == CustomRequestStatusEnum.quote_confirmed,
+        )
+        .values(status=CustomRequestStatusEnum.quote_sent, order_id=None)
+    )
 
 
 async def complete_order(db: AsyncSession, order: Order) -> None:
@@ -638,11 +665,13 @@ async def create_order(
     """
     from custom.models import CustomRequest, CustomRequestStatusEnum  # noqa: PLC0415
 
-    # 1. Load all cart rows（一般 + 客製）
+    # 1. Load all cart rows（一般 + 客製）— with_for_update 鎖 cart_items 避免
+    #    user 同時兩分頁結帳：第二個 transaction 會等第一個 commit 後看到 cart 已空。
     cart_rows = (await db.execute(
         select(CartItem)
         .where(CartItem.user_id == user_id)
         .order_by(CartItem.created_at)
+        .with_for_update()
     )).scalars().all()
     if not cart_rows:
         raise BadRequestError("購物車為空")

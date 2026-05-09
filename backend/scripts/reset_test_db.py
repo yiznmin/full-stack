@@ -35,7 +35,10 @@ async def main():
     url = settings.test_database_url or settings.database_url
     engine = create_async_engine(url, poolclass=NullPool)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        # 直接 DROP SCHEMA public CASCADE 砍光，避免 cycle FK / 舊 named constraint
+        # 與 new model（use_alter=True）的 mismatch — 比 metadata.drop_all 更乾淨
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
         await conn.execute(text("DROP SEQUENCE IF EXISTS order_number_seq"))
         await conn.execute(text("DROP TYPE IF EXISTS customrequesttypeenum CASCADE"))
         await conn.execute(text("DROP TYPE IF EXISTS customrequeststatusenum CASCADE"))

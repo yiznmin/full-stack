@@ -606,7 +606,12 @@ async def test_admin_get_photo_signed_url_stub(client, db):
 
 
 async def _setup_quote_sent_state(client, db, plain_token="token_abc123"):
-    """Create request, approve job, set status to quote_sent with given token."""
+    """Create request, approve job, set status to quote_sent with given token.
+
+    新流程：admin 報價必綁 production_job（admin 在 QuoteDialog 選定）。helper 把
+    job.id 寫入 req.quoted_production_job_id 供 confirm_quote 加進 cart 使用。
+    quote_token 直接存 plain（與 send_quote 行為一致）。
+    """
     from datetime import UTC, datetime, timedelta
     await _seed_system_settings(db)
     await _make_customer(client, db)
@@ -614,15 +619,16 @@ async def _setup_quote_sent_state(client, db, plain_token="token_abc123"):
     create_res = await _create_photo_request(client)
     rid = create_res.json()["id"]
 
-    job = await _make_approved_job(db, rid)  # noqa: F841
+    job = await _make_approved_job(db, rid)
 
     req_result = await db.execute(select(CustomRequest).where(CustomRequest.id == rid))
     req = req_result.scalar_one()
     req.status = CustomRequestStatusEnum.quote_sent
     req.quoted_price = 1500
-    req.quote_token = _hash_token(plain_token)
+    req.quote_token = plain_token  # plain 存（不再 hash）
     req.quote_expires_at = datetime.now(UTC) + timedelta(hours=24)
     req.quoted_at = datetime.now(UTC)
+    req.quoted_production_job_id = job.id  # 新流程：admin 在 QuoteDialog 選定
     await db.commit()
     return rid, plain_token
 
@@ -708,43 +714,52 @@ async def test_get_invalid_quote(client, db):
 
 
 @pytest.mark.asyncio
-async def test_confirm_quote_creates_order(client, db):
+async def test_confirm_quote_adds_to_cart(client, db):
+    """confirm_quote 改成「加入購物車」（不再直接建 Order）。"""
+    from orders.models import CartItem
+
     rid, token = await _setup_quote_sent_state(client, db)
-    profile_id = await _make_shipping_profile(client)
     res = await client.post(
         f"{QUOTE_URL}/{token}/confirm",
-        json={"shipping_profile_id": profile_id},
+        json={"quantity": 1},
     )
     assert res.status_code == 201
     body = res.json()
-    assert "order_id" in body and "order_number" in body
-    assert body["total"] == 1620.0  # 1500 + 120 home shipping
+    assert "cart_item_id" in body
+    assert body["custom_request_id"] == rid
+    assert body["quantity"] == 1
+    assert body["quoted_price"] == 1500.0
 
-    # Verify custom_request linked to order
+    # cart 內有客製 line
+    item_result = await db.execute(
+        select(CartItem).where(CartItem.custom_request_id == rid)
+    )
+    cart_item = item_result.scalar_one()
+    assert cart_item.product_variant_id is None
+    assert cart_item.production_job_id is not None
+    assert cart_item.quantity == 1
+
+    # custom_request status 不變（仍 quote_sent，等 cart 結帳才轉 confirmed）
     req_result = await db.execute(select(CustomRequest).where(CustomRequest.id == rid))
     req = req_result.scalar_one()
-    assert req.status == CustomRequestStatusEnum.quote_confirmed
-    assert str(req.order_id) == body["order_id"]
+    assert req.status == CustomRequestStatusEnum.quote_sent
 
 
 @pytest.mark.asyncio
-async def test_confirm_quote_links_order_item(client, db):
+async def test_confirm_quote_qty_overrides(client, db):
+    """同一 quote 重複 confirm 不疊加，新 qty 蓋舊。"""
+    from orders.models import CartItem
+
     rid, token = await _setup_quote_sent_state(client, db)
-    profile_id = await _make_shipping_profile(client)
-    res = await client.post(
-        f"{QUOTE_URL}/{token}/confirm",
-        json={"shipping_profile_id": profile_id},
-    )
-    order_id = res.json()["order_id"]
-    item_result = await db.execute(
-        select(OrderItem).where(OrderItem.order_id == order_id)
-    )
-    item = item_result.scalar_one()
-    assert str(item.custom_request_id) == rid
-    assert item.production_job_id is not None
-    assert item.product_variant_id is None
-    assert item.fulfilled_qty == 0
-    assert item.preorder_qty == 1
+    await client.post(f"{QUOTE_URL}/{token}/confirm", json={"quantity": 2})
+    res = await client.post(f"{QUOTE_URL}/{token}/confirm", json={"quantity": 5})
+    assert res.status_code == 201
+
+    items = (await db.execute(
+        select(CartItem).where(CartItem.custom_request_id == rid)
+    )).scalars().all()
+    assert len(items) == 1
+    assert items[0].quantity == 5
 
 
 @pytest.mark.asyncio
@@ -845,14 +860,25 @@ async def test_create_jobs_auto_marks_negotiating(client, db):
 
 @pytest.mark.asyncio
 async def test_paid_custom_order_creates_notification(client, db):
-    """When admin transitions custom order to paid, custom_order_paid notification fires."""
+    """When admin transitions custom order to paid, custom_order_paid notification fires.
+
+    新流程：confirm_quote → 加 cart → POST /orders → admin paid。
+    """
     rid, token = await _setup_quote_sent_state(client, db)
     await _make_admin(db)
     profile_id = await _make_shipping_profile(client)
+    # 1. confirm quote → 加進 cart
     res = await client.post(
         f"{QUOTE_URL}/{token}/confirm",
-        json={"shipping_profile_id": profile_id},
+        json={"quantity": 1},
     )
+    assert res.status_code == 201
+    # 2. 從 cart 結帳建 Order
+    res = await client.post(
+        "/api/v1/orders",
+        json={"shipping_profile_id": profile_id, "shipping_preference": "together"},
+    )
+    assert res.status_code in (200, 201)
     order_id = res.json()["order_id"]
 
     client.cookies.clear()

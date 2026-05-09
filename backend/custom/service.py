@@ -886,6 +886,8 @@ async def admin_get_request(db: AsyncSession, request_id: UUID) -> dict:
     detail = await _request_detail(db, req)
     # Hide raw photo_url from admin response — force going through signed-URL endpoint
     detail["photo_url"] = None
+    # quote_token 是 owner 用來進 viewer 的 secret，admin 不該看到（避免 admin 端 leak）
+    detail["quote_token"] = None
     detail["user_name"] = user.name
     detail["user_email"] = user.email
     detail["admin_notes"] = req.admin_notes

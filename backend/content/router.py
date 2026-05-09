@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from content import service
@@ -254,8 +255,15 @@ async def update_photo_price(
     return await service.update_photo_price(db, price_id, body.price)
 
 
+class SeedPhotoPricesResponse(BaseModel):
+    added: int
+    skipped: int
+    total_after: int
+
+
 @router.post(
     "/admin/custom-photo-prices/seed-defaults",
+    response_model=SeedPhotoPricesResponse,
     description=(
         "一次性 seed 預設客製照片價格表（17 canvas × 4 difficulty = 68 筆）。"
         "冪等：已存在的 (canvas_w, canvas_h, difficulty) 組合會跳過。"
