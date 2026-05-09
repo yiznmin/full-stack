@@ -60,6 +60,32 @@ async def _load_image(session, image_id):
     return result.scalar_one_or_none()
 
 
+async def _load_custom_request_photo_url(session, custom_request_id) -> str | None:
+    """取客製申請的客戶照片 URL（私密路徑）。
+
+    DB 內 photo_url 為純 blob path（如 ``custom_photos/abc.jpg``），
+    這裡轉成 ``gs://bucket/path`` 讓 _download_image_to_path 能直接下載。
+    回 None：申請不存在 / 客戶未上傳照片。
+    """
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from core.firebase import get_bucket  # noqa: PLC0415
+    from custom.models import CustomRequest  # noqa: PLC0415
+
+    result = await session.execute(
+        select(CustomRequest).where(CustomRequest.id == custom_request_id)
+    )
+    req = result.scalar_one_or_none()
+    if req is None or not req.photo_url:
+        return None
+
+    raw = req.photo_url
+    if raw.startswith("gs://") or "://" in raw:
+        return raw
+    bucket = get_bucket()
+    return f"gs://{bucket.name}/{raw}"
+
+
 def _download_image_to_path(image_url: str, dest_path: str) -> None:
     """從 Firebase Storage 下載原圖。
 
@@ -221,9 +247,32 @@ async def _run_production_job_async(job_id: str) -> None:
                 logger.warning("run_production_job: job %s not found", job_id)
                 return
 
-            if job.image_id is None:
+            # 來源：image 或 custom_request photo（兩者擇一）
+            source_url: str | None = None
+            if job.image_id is not None:
+                image = await _load_image(session, job.image_id)
+                if image is None:
+                    await _mark_failed_with_notification(
+                        session, job, f"找不到 image_id={job.image_id}"
+                    )
+                    await session.commit()
+                    return
+                source_url = image.original_url
+            elif job.custom_request_id is not None:
+                source_url = await _load_custom_request_photo_url(
+                    session, job.custom_request_id
+                )
+                if not source_url:
+                    await _mark_failed_with_notification(
+                        session, job,
+                        "客戶尚未上傳照片或申請不存在，無法跑製作",
+                    )
+                    await session.commit()
+                    return
+            else:
                 await _mark_failed_with_notification(
-                    session, job, "缺少 image_id（custom_request 路徑請先指派 image）"
+                    session, job,
+                    "任務無 image_id 也無 custom_request_id（資料異常）",
                 )
                 await session.commit()
                 return
@@ -233,14 +282,6 @@ async def _run_production_job_async(job_id: str) -> None:
                 await _mark_failed_with_notification(
                     session, job,
                     f"mode={job.mode} 但缺 mask_url（請先在製作系統編輯遮罩再送出）",
-                )
-                await session.commit()
-                return
-
-            image = await _load_image(session, job.image_id)
-            if image is None:
-                await _mark_failed_with_notification(
-                    session, job, f"找不到 image_id={job.image_id}"
                 )
                 await session.commit()
                 return
@@ -255,7 +296,7 @@ async def _run_production_job_async(job_id: str) -> None:
                 result = await asyncio.to_thread(
                     _run_engine_and_upload,
                     str(job.id),
-                    image.original_url,
+                    source_url,
                     _resolve_params(job),
                     uploaded_blob_paths,
                     str(job.mode),
