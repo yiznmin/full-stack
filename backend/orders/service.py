@@ -139,13 +139,25 @@ async def get_cart(db: AsyncSession, user_id: UUID) -> dict:
             if cr is None:
                 # custom_request 已被刪除，跳過（cascade 應已清，這是防禦性）
                 continue
-            # 抓對應 production_job 拿縮圖
+            # 抓對應 production_job 拿縮圖（filled_template_url 是 production_jobs/
+            # 私密路徑，<img> 直接 src=gs:// 或 https 都會 403，需用 _make_signed_url
+            # 簽 short-lived signed GET URL 才能讀）
             job = None
+            filled_signed_url: str | None = None
             if ci.production_job_id:
                 job_result = await db.execute(
                     select(ProductionJob).where(ProductionJob.id == ci.production_job_id)
                 )
                 job = job_result.scalar_one_or_none()
+                if job and job.filled_template_url:
+                    try:
+                        from production.service import _make_signed_url  # noqa: PLC0415
+                        filled_signed_url = _make_signed_url(job.filled_template_url)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(
+                            "cart custom thumb signed_url failed (job=%s): %s",
+                            ci.production_job_id, e,
+                        )
             # 客製 line 沒有「現貨/預購」概念 — 全部都是預購（admin 製作）
             qty = ci.quantity
             unit_price = float(cr.quoted_price) if cr.quoted_price else 0.0
@@ -163,8 +175,8 @@ async def get_cart(db: AsyncSession, user_id: UUID) -> dict:
                 "product_id": None,
                 "product_title": "客製作品",
                 "product_image_url": None,
-                "variant_image_url": job.filled_template_url if job else None,
-                "thumb_url": None,
+                "variant_image_url": filled_signed_url,
+                "thumb_url": filled_signed_url,
                 "variant_spec": {
                     "canvas_w_cm": cr.canvas_w_cm,
                     "canvas_h_cm": cr.canvas_h_cm,
