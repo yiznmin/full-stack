@@ -182,6 +182,23 @@ async def update_photo(
     )
 
 
+@router.get(
+    "/custom-requests/{request_id}/photo-signed-url",
+    response_model=PhotoSignedUrlResponse,
+    description=(
+        "Customer 取自己客製申請照片的短期 read signed URL（15 分鐘）。"
+        "DB 中 photo_url 為私密 firebase_path（custom_photos/...），不可直接給 <img>，"
+        "需透過此端點重簽 GET URL。"
+    ),
+)
+async def customer_get_photo_signed_url(
+    request_id: UUID,
+    current_user=Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.customer_get_photo_signed_url(db, current_user.id, request_id)
+
+
 @router.patch(
     "/custom-requests/{request_id}", response_model=CustomRequestDetailResponse
 )

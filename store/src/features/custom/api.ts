@@ -230,6 +230,22 @@ export async function getCustomRequest(id: string): Promise<CustomRequestDetail>
   return jsonRequest<CustomRequestDetail>(`/custom-requests/${id}`)
 }
 
+/** GET /custom-requests/{id}/photo-signed-url — 短期讀取 signed URL（15 min）。
+ *
+ * DB 中 photo_url 為私密 firebase_path，不能直接給 <img>，需透過此端點重簽。
+ */
+export interface PhotoSignedUrlResponse {
+  url: string
+  expires_at: string
+}
+export async function getCustomPhotoSignedUrl(
+  id: string,
+): Promise<PhotoSignedUrlResponse> {
+  return jsonRequest<PhotoSignedUrlResponse>(
+    `/custom-requests/${id}/photo-signed-url`,
+  )
+}
+
 /** POST /custom-requests/{id}/messages — 發送訊息 */
 export async function postCustomMessage(
   id: string,

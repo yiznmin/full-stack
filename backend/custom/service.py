@@ -1130,7 +1130,8 @@ async def admin_send_quote(
 async def admin_get_photo_signed_url(
     db: AsyncSession, request_id: UUID
 ) -> dict:
-    """Stub: returns photo_url + faux 15-min expires_at; real Firebase SDK later."""
+    """Admin 取私密照片的短期讀取 signed URL（15 分鐘 TTL）。"""
+    from upload.service import generate_private_read_signed_url  # noqa: PLC0415
     result = await db.execute(
         select(CustomRequest).where(CustomRequest.id == request_id)
     )
@@ -1139,13 +1140,28 @@ async def admin_get_photo_signed_url(
         raise NotFoundError("客製申請不存在")
     if not req.photo_url:
         raise NotFoundError("此申請無照片")
-    logger.warning(
-        "Photo signed URL is STUB (returning raw photo_url) — replace with Firebase SDK"
+    return generate_private_read_signed_url(req.photo_url)
+
+
+async def customer_get_photo_signed_url(
+    db: AsyncSession, user_id: UUID, request_id: UUID
+) -> dict:
+    """Customer 取自己客製申請照片的短期讀取 signed URL（15 分鐘 TTL）。
+
+    驗證 owner 後再簽：避免他人猜測 request_id 拿到別人的照片。
+    """
+    from upload.service import generate_private_read_signed_url  # noqa: PLC0415
+    result = await db.execute(
+        select(CustomRequest).where(
+            CustomRequest.id == request_id, CustomRequest.user_id == user_id
+        )
     )
-    return {
-        "url": req.photo_url,
-        "expires_at": datetime.now(UTC) + timedelta(minutes=15),
-    }
+    req = result.scalar_one_or_none()
+    if req is None:
+        raise NotFoundError("客製申請不存在")
+    if not req.photo_url:
+        raise NotFoundError("此申請無照片")
+    return generate_private_read_signed_url(req.photo_url)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

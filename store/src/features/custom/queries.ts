@@ -48,6 +48,21 @@ export function useCustomRequestDetailQuery(
   })
 }
 
+/** GET /custom-requests/{id}/photo-signed-url — 短期讀 URL，給 <img> 用 */
+export function useCustomPhotoSignedUrlQuery(
+  id: MaybeRefOrGetter<string | null | undefined>,
+  hasPhoto: MaybeRefOrGetter<boolean>,
+) {
+  const auth = useAuthStore()
+  return useQuery({
+    queryKey: computed(() => ['custom', 'photo-signed-url', String(toValue(id) ?? '')]),
+    queryFn: () => customApi.getCustomPhotoSignedUrl(toValue(id) as string),
+    // signed URL 後端 TTL 15 min，前端 cache 10 min（與 _SIGNED_URL_CACHE_TTL 對齊）
+    staleTime: 10 * 60 * 1000,
+    enabled: computed(() => auth.isLoggedIn && !!toValue(id) && toValue(hasPhoto)),
+  })
+}
+
 // ── Customer mutations ───────────────────────────────────────────────────────
 
 export function useCreateCustomRequestMutation() {

@@ -152,3 +152,43 @@ def generate_private_signed_url(
         "firebase_path": path,
         "expires_at": datetime.now(UTC) + ttl,
     }
+
+
+def generate_private_read_signed_url(
+    raw_path_or_url: str, ttl_minutes: int = _UPLOAD_TTL_MINUTES,
+) -> dict:
+    """私有檔案 → 短期讀取 signed URL。
+
+    支援輸入：
+    - 純 blob path（DB 儲存格式，如 ``custom_photos/abc.jpg``）
+    - ``gs://bucket/path``
+    - ``https://storage.googleapis.com/<bucket>/<path>?...`` 既有 signed URL（重簽）
+
+    用途：customer 端 ``GET /custom-requests/{id}/photo-signed-url`` 用此函式
+    回 ``<img>`` 可直接 src 的 URL。
+    """
+    bucket = get_bucket()
+    blob_path: str
+    if raw_path_or_url.startswith("gs://"):
+        bucket_and_path = raw_path_or_url[len("gs://"):]
+        _, _, blob_path = bucket_and_path.partition("/")
+    elif "/" + bucket.name + "/" in raw_path_or_url:
+        blob_path = raw_path_or_url.split(f"/{bucket.name}/", 1)[1].split("?", 1)[0]
+    else:
+        # 純 blob path
+        blob_path = raw_path_or_url
+
+    if not blob_path:
+        raise ValueError(f"無法解析 blob 路徑：{raw_path_or_url}")
+
+    blob = bucket.blob(blob_path)
+    ttl = timedelta(minutes=ttl_minutes)
+    url = blob.generate_signed_url(
+        version="v4",
+        expiration=ttl,
+        method="GET",
+    )
+    return {
+        "url": url,
+        "expires_at": datetime.now(UTC) + ttl,
+    }
