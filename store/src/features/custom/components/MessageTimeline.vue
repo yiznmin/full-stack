@@ -11,7 +11,10 @@ const props = defineProps<{
   quoteExpiresAt?: string | null
 }>()
 
-const emit = defineEmits<{
+// 事件卡是訊息流的事件記錄，CTA 由上方 status banner 統一提供（避免重複）。
+// emit 暫保留 type 簽名作為 API surface（CustomRequestDetailPage 仍 @go-to-quote），
+// 但不在 template 內 emit。
+defineEmits<{
   goToQuote: []
 }>()
 
@@ -126,9 +129,7 @@ const expiresLabel = computed(() => {
         <div v-if="expiresLabel" class="quote-event-meta">
           {{ expiresLabel }}
         </div>
-        <button type="button" class="quote-event-cta" @click="emit('goToQuote')">
-          前往報價頁 →
-        </button>
+        <p class="quote-event-hint">點頂部「前往報價頁」按鈕進入確認</p>
       </div>
     </div>
   </div>
@@ -296,22 +297,14 @@ const expiresLabel = computed(() => {
   color: var(--color-ink-muted);
   margin-bottom: 16px;
 }
-.quote-event-cta {
-  display: inline-flex;
-  align-items: center;
-  padding: 10px 22px;
-  border: 0;
-  background: var(--color-ink-strong);
-  color: var(--color-paper-canvas);
-  font-family: var(--font-cn-serif);
-  font-size: 13px;
-  letter-spacing: 0.18em;
+.quote-event-hint {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  transition: background 150ms;
+  color: var(--color-ink-muted);
 }
-.quote-event-cta:hover { background: var(--color-accent-deep); }
 
 @media (max-width: 639px) {
   .msg { max-width: 90%; }

@@ -276,9 +276,13 @@ function goToQuote() {
     router.push(`/custom/quote/${encodeURIComponent(t)}`)
     return
   }
-  // 萬一沒拿到 token（舊資料 / status 不對），退回滾到報價事件卡
-  const el = document.querySelector('.quote-event')
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  // 通常是頁面 cache 舊版本（quote_token 是新增欄位）。
+  // eslint-disable-next-line no-console
+  console.error('[goToQuote] no quote_token in detail:', detail.value)
+  alert(
+    '無法取得報價連結。請按 Ctrl+Shift+R 強制重整頁面再試一次。\n'
+    + '（若仍不行請告知工程師：detail.quote_token 為空）',
+  )
 }
 
 const composerVisible = computed(() =>
