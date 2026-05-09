@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import PlaceholderPage from '@/shared/components/PlaceholderPage.vue'
+import InfoPage from '@/features/info/InfoPage.vue'
 </script>
 
 <template>
-  <PlaceholderPage title="退款退貨政策" module="S10 — 資訊頁" />
+  <InfoPage
+    slug="refund_policy"
+    no="05"
+    chapter="Policy"
+    fallback-title="退款退貨政策"
+    caption="Refund &amp; Return"
+  />
 </template>

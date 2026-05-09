@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import PlaceholderPage from '@/shared/components/PlaceholderPage.vue'
+import InfoPage from '@/features/info/InfoPage.vue'
 </script>
 
 <template>
-  <PlaceholderPage title="出貨流程" module="S10 — 資訊頁" />
+  <InfoPage
+    slug="shipping"
+    no="02"
+    chapter="Logistics"
+    fallback-title="出貨流程"
+    caption="Delivery Flow"
+  />
 </template>

@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import PlaceholderPage from '@/shared/components/PlaceholderPage.vue'
+import InfoPage from '@/features/info/InfoPage.vue'
 </script>
 
 <template>
-  <PlaceholderPage title="尺寸指南" module="S10 — 資訊頁" />
+  <InfoPage
+    slug="size_guide"
+    no="01"
+    chapter="Reference"
+    fallback-title="尺寸指南"
+    caption="Canvas Sizes"
+  />
 </template>

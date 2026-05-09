@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import PlaceholderPage from '@/shared/components/PlaceholderPage.vue'
+import InfoPage from '@/features/info/InfoPage.vue'
 </script>
 
 <template>
-  <PlaceholderPage title="訂製流程" module="S10 — 資訊頁" />
+  <InfoPage
+    slug="custom_process"
+    no="03"
+    chapter="Bespoke"
+    fallback-title="訂製流程"
+    caption="How It Works"
+  />
 </template>
