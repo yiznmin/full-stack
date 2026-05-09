@@ -270,7 +270,7 @@ const categoryById = computed(() => {
         v-if="row.image_url"
         :src="row.image_url"
         alt=""
-        class="w-12 h-12 object-cover rounded-[var(--radius-xs)] border border-line-hairline"
+        class="w-12 h-12 object-contain rounded-[var(--radius-xs)] border border-line-hairline bg-paper-surface"
       />
     </template>
     <template #cell-title="{ row }">
@@ -357,7 +357,7 @@ const categoryById = computed(() => {
             class="relative aspect-[4/3] rounded-[var(--radius-xs)] overflow-hidden border"
             :class="idx === 0 ? 'border-accent-deep ring-1 ring-accent-deep/30' : 'border-line-hairline'"
           >
-            <img :src="img.image_url" :alt="`圖 ${idx + 1}`" class="w-full h-full object-cover" />
+            <img :src="img.image_url" :alt="`圖 ${idx + 1}`" class="w-full h-full object-contain bg-paper-surface" />
             <!-- 封面標記 -->
             <span
               v-if="idx === 0"
@@ -517,7 +517,7 @@ const categoryById = computed(() => {
           @click="selectedJobId = j.id"
         >
           <div class="aspect-[4/3] bg-paper-subtle">
-            <img v-if="j.preview_url" :src="j.preview_url" :alt="`job ${j.id}`" class="w-full h-full object-cover" />
+            <img v-if="j.preview_url" :src="j.preview_url" :alt="`job ${j.id}`" class="w-full h-full object-contain" />
           </div>
           <div class="p-2 text-[11px]">
             <div class="text-ink-strong">{{ j.canvas_w_cm }}×{{ j.canvas_h_cm }} cm</div>

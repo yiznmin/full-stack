@@ -210,7 +210,7 @@ function consultCase(c: CustomCase) {
 .case-card:hover { border-color: var(--color-accent); transform: translateY(-2px); }
 .case-card:hover .case-cta { opacity: 1; transform: translateY(0); }
 .case-img { aspect-ratio: 4 / 3; overflow: hidden; background: var(--color-paper-surface); }
-.case-img img { width: 100%; height: 100%; object-fit: cover; }
+.case-img img { width: 100%; height: 100%; object-fit: contain; padding: 8px; }
 .case-meta { padding: 14px 16px 12px; border-top: 1px solid var(--color-line); }
 .case-meta h3 { font-family: var(--font-cn-serif); font-weight: 400; font-size: 15px; color: var(--color-ink-strong); margin: 0 0 4px; }
 .case-spec { font-family: var(--font-mono); font-size: 11px; color: var(--color-ink-muted); margin: 0; letter-spacing: 0.06em; }

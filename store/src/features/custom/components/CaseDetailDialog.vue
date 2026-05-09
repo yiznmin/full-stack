@@ -137,7 +137,7 @@ function onConsult() {
   background: var(--color-paper-surface);
   overflow: hidden;
 }
-.case-figure img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.case-figure img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 .thumb-strip {
   list-style: none; padding: 8px;
@@ -156,7 +156,8 @@ function onConsult() {
   border: 2px solid transparent;
   transition: border-color 150ms;
 }
-.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb { background: var(--color-paper-surface); }
+.thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .thumb:hover { border-color: var(--color-line); }
 .thumb.active { border-color: var(--color-accent-deep); }
 

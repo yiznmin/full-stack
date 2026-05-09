@@ -348,7 +348,7 @@ const inflightRequests = computed(() =>
   aspect-ratio: 4 / 3; overflow: hidden;
   background: var(--color-paper-deep);
 }
-.case-img img { width: 100%; height: 100%; object-fit: cover; }
+.case-img img { width: 100%; height: 100%; object-fit: contain; padding: 8px; }
 .case-meta { padding: 12px 16px 14px; }
 .case-meta h4 {
   font-family: var(--font-cn-serif); font-weight: 400;
