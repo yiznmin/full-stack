@@ -11,7 +11,7 @@ import {
   useCustomPhotoPricesQuery,
   useCustomPhotoSurchargesQuery,
 } from '../queries'
-import type { CustomRequestDetail, Detail, QuotePayload } from '../api'
+import type { CustomRequestDetail, Detail, Difficulty, QuotePayload } from '../api'
 
 const props = defineProps<{
   open: boolean
@@ -25,6 +25,11 @@ const emit = defineEmits<{
 }>()
 
 const detail = ref<Detail>('standard')
+// 試算用 — 客戶若選「讓管理員建議」(canvas/difficulty=null)，admin 在這裡敲定試算規格。
+// 不會寫回 custom_request；只供 basePrice 對 prices 表 lookup。
+const priceCanvasW = ref<number | null>(null)
+const priceCanvasH = ref<number | null>(null)
+const priceDifficulty = ref<Difficulty>('intermediate')
 const surchargeIds = ref<Set<string>>(new Set())
 const overrideStr = ref('')
 const note = ref('')
@@ -38,11 +43,48 @@ const previewImageLoading = ref(false)
 const { data: prices, isLoading: pricesLoading } = useCustomPhotoPricesQuery()
 const { data: surcharges, isLoading: surLoading } = useCustomPhotoSurchargesQuery()
 
+// 從 prices 表推所有可選的 canvas 尺寸（去重）
+const availableCanvasSizes = computed(() => {
+  if (!prices.value) return [] as Array<{ w: number; h: number; label: string }>
+  const seen = new Set<string>()
+  const out: Array<{ w: number; h: number; label: string }> = []
+  for (const p of prices.value.items) {
+    const key = `${p.canvas_w}x${p.canvas_h}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ w: p.canvas_w, h: p.canvas_h, label: `${p.canvas_w} × ${p.canvas_h} cm` })
+  }
+  return out.sort((a, b) => a.w * a.h - b.w * b.h)
+})
+const canvasSizeOptions = computed(() =>
+  availableCanvasSizes.value.map((s) => ({ value: `${s.w}x${s.h}`, label: s.label })),
+)
+const priceCanvasKey = computed({
+  get: () => (priceCanvasW.value && priceCanvasH.value
+    ? `${priceCanvasW.value}x${priceCanvasH.value}` : ''),
+  set: (v: string) => {
+    const [w, h] = v.split('x').map(Number)
+    priceCanvasW.value = w || null
+    priceCanvasH.value = h || null
+  },
+})
+
+const difficultyOptions: Array<{ value: Difficulty; label: string }> = [
+  { value: 'beginner', label: '入門 beginner' },
+  { value: 'elementary', label: '初級 elementary' },
+  { value: 'intermediate', label: '中級 intermediate' },
+  { value: 'advanced', label: '進階 advanced' },
+]
+
 watch(
   () => props.open,
   (v) => {
     if (v) {
       detail.value = (props.request.detail as Detail) || 'standard'
+      // 預設帶客戶填的；客戶 null 則用合理 default
+      priceCanvasW.value = props.request.canvas_w_cm ?? 30
+      priceCanvasH.value = props.request.canvas_h_cm ?? 40
+      priceDifficulty.value = (props.request.difficulty as Difficulty) ?? 'intermediate'
       surchargeIds.value = new Set()
       overrideStr.value = ''
       note.value = ''
@@ -56,14 +98,30 @@ watch(
 const PRICE_MULTIPLIER = 2.0
 
 const basePrice = computed(() => {
-  if (!prices.value || !props.request.canvas_w_cm || !props.request.canvas_h_cm) return null
+  if (!prices.value || !priceCanvasW.value || !priceCanvasH.value) return null
   const match = prices.value.items.find(
     (p) =>
-      p.canvas_w === props.request.canvas_w_cm &&
-      p.canvas_h === props.request.canvas_h_cm &&
-      p.difficulty === props.request.difficulty,
+      p.canvas_w === priceCanvasW.value &&
+      p.canvas_h === priceCanvasH.value &&
+      p.difficulty === priceDifficulty.value,
   )
   return match ? Number(match.price) : null
+})
+
+const customerSpecsHint = computed(() => {
+  const r = props.request
+  const cv = r.canvas_w_cm ? `${r.canvas_w_cm}×${r.canvas_h_cm}cm` : '讓我們建議'
+  const df = r.difficulty || '讓我們建議'
+  return `客戶填：畫布 ${cv}、難易度 ${df}`
+})
+
+const usingCustomerSpec = computed(() => {
+  const r = props.request
+  return (
+    r.canvas_w_cm === priceCanvasW.value
+    && r.canvas_h_cm === priceCanvasH.value
+    && r.difficulty === priceDifficulty.value
+  )
 })
 
 const activeSurcharges = computed(() => surcharges.value?.items.filter((s) => s.is_active) ?? [])
@@ -147,11 +205,26 @@ const previewImageSrc = computed(
       <!-- Spec preview -->
       <div class="p-3 border border-line-hairline rounded-[var(--radius-xs)] bg-paper-subtle">
         <p class="text-ink-strong font-medium">客戶申請內容</p>
-        <p class="text-ink-muted text-[12px] mt-1">
-          畫布 {{ request.canvas_w_cm }}×{{ request.canvas_h_cm }}cm ·
-          難易度 {{ request.difficulty || '—' }} ·
-          細緻度 {{ request.detail || '—' }}
+        <p class="text-ink-muted text-[12px] mt-1">{{ customerSpecsHint }}</p>
+      </div>
+
+      <!-- 試算規格 — admin 敲定報價基準 -->
+      <div class="p-3 border border-aux-rice-mid/40 bg-aux-rice-mid/[0.06] rounded-[var(--radius-xs)] space-y-3">
+        <p class="text-[12px] text-ink-default">
+          報價試算規格
+          <span v-if="usingCustomerSpec" class="text-ink-muted">（沿用客戶填的）</span>
+          <span v-else class="text-state-warning">（你已調整 — 請確認最終要報的尺寸／難度）</span>
         </p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[12px] text-ink-muted mb-1">畫布尺寸</label>
+            <Select v-model="priceCanvasKey" :options="canvasSizeOptions" />
+          </div>
+          <div>
+            <label class="block text-[12px] text-ink-muted mb-1">難易度</label>
+            <Select v-model="priceDifficulty" :options="difficultyOptions" />
+          </div>
+        </div>
       </div>
 
       <!-- Detail picker -->
@@ -191,12 +264,22 @@ const previewImageSrc = computed(
       <div class="p-3 border border-line-hairline rounded-[var(--radius-xs)] bg-paper-subtle">
         <p class="text-[12px] text-ink-muted mb-2">系統建議價格（公式 × {{ PRICE_MULTIPLIER }}）</p>
         <dl class="text-[12px] space-y-1">
-          <div class="flex justify-between"><dt>基礎價（{{ request.canvas_w_cm }}×{{ request.canvas_h_cm }} · {{ request.difficulty || '—' }}）</dt><dd class="font-mono">{{ fmtMoney(basePrice) }}</dd></div>
-          <div class="flex justify-between"><dt>加費小計</dt><dd class="font-mono">{{ fmtMoney(surchargeTotal) }}</dd></div>
+          <div class="flex justify-between">
+            <dt>基礎價（{{ priceCanvasW }}×{{ priceCanvasH }} · {{ priceDifficulty }}）</dt>
+            <dd class="font-mono">{{ fmtMoney(basePrice) }}</dd>
+          </div>
+          <div class="flex justify-between">
+            <dt>加費小計</dt>
+            <dd class="font-mono">{{ fmtMoney(surchargeTotal) }}</dd>
+          </div>
           <div class="flex justify-between pt-1.5 border-t border-line-hairline mt-1.5">
-            <dt class="text-ink-strong">建議報價</dt><dd class="font-mono text-ink-strong">{{ fmtMoney(suggestedPrice) }}</dd>
+            <dt class="text-ink-strong">建議報價</dt>
+            <dd class="font-mono text-ink-strong">{{ fmtMoney(suggestedPrice) }}</dd>
           </div>
         </dl>
+        <p v-if="basePrice == null" class="mt-2 text-[11px] text-state-warning">
+          ⚠ 找不到對應價格表 — 請確認 prices 表已 seed 此 (尺寸 × 難度) 組合
+        </p>
       </div>
 
       <!-- Override -->
@@ -281,11 +364,11 @@ const previewImageSrc = computed(
           </div>
           <div class="flex justify-between">
             <dt class="text-ink-muted">畫布尺寸</dt>
-            <dd>{{ request.canvas_w_cm }}×{{ request.canvas_h_cm }}cm</dd>
+            <dd>{{ priceCanvasW }}×{{ priceCanvasH }}cm</dd>
           </div>
           <div class="flex justify-between">
             <dt class="text-ink-muted">難易度</dt>
-            <dd>{{ request.difficulty || '—' }}</dd>
+            <dd>{{ priceDifficulty }}</dd>
           </div>
           <div class="flex justify-between">
             <dt class="text-ink-muted">細緻度</dt>
