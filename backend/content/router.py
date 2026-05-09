@@ -254,6 +254,21 @@ async def update_photo_price(
     return await service.update_photo_price(db, price_id, body.price)
 
 
+@router.post(
+    "/admin/custom-photo-prices/seed-defaults",
+    description=(
+        "一次性 seed 預設客製照片價格表（17 canvas × 4 difficulty = 68 筆）。"
+        "冪等：已存在的 (canvas_w, canvas_h, difficulty) 組合會跳過。"
+        "用途：production DB 從沒跑過 seed_content.py 時用此 endpoint 補。"
+    ),
+)
+async def seed_default_photo_prices(
+    _=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.seed_default_photo_prices(db)
+
+
 # ── Custom Photo Surcharges ───────────────────────────────────────────────────
 
 

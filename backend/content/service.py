@@ -354,6 +354,61 @@ async def update_photo_price(
     return _serialize_price(p)
 
 
+# 17 種標準畫布（與 scripts/seed_content.py 同步）
+_DEFAULT_CANVAS_SIZES: tuple[tuple[int, int], ...] = (
+    (20, 20), (30, 30), (40, 40), (50, 50), (60, 60),
+    (30, 40), (30, 50), (30, 60),
+    (40, 50), (40, 60),
+    (50, 60),
+    (40, 30), (50, 30), (60, 30),
+    (50, 40), (60, 40),
+    (60, 50),
+)
+_DIFFICULTY_MULTIPLIER = {
+    "beginner": 1.0,
+    "elementary": 1.2,
+    "intermediate": 1.5,
+    "advanced": 1.85,
+}
+
+
+def _default_price(w: int, h: int, difficulty: str) -> float:
+    """與 scripts/seed_content.py:_price 同步：base 200 + 0.4 * area，difficulty multiplier。"""
+    from decimal import Decimal  # noqa: PLC0415
+    area = w * h
+    base = 200 + area * 0.4
+    multiplier = _DIFFICULTY_MULTIPLIER[difficulty]
+    return float(Decimal(str(round(base * multiplier / 10) * 10)))
+
+
+async def seed_default_photo_prices(db: AsyncSession) -> dict:
+    """補 17 canvas × 4 difficulty 的預設價格（缺哪個補哪個，不蓋已調整過的）。
+
+    用途：production DB 沒跑過 seed_content.py 時 admin 一鍵補完。
+    """
+    existing = (await db.execute(
+        select(CustomPhotoPrice.canvas_w, CustomPhotoPrice.canvas_h, CustomPhotoPrice.difficulty)
+    )).all()
+    existing_keys = {(int(w), int(h), str(d) if not hasattr(d, "value") else d.value)
+                     for w, h, d in existing}
+
+    added = 0
+    skipped = 0
+    for w, h in _DEFAULT_CANVAS_SIZES:
+        for diff in _DIFFICULTY_MULTIPLIER:
+            if (w, h, diff) in existing_keys:
+                skipped += 1
+                continue
+            db.add(CustomPhotoPrice(
+                canvas_w=w, canvas_h=h,
+                difficulty=DifficultyEnum(diff),
+                price=_default_price(w, h, diff),
+            ))
+            added += 1
+    await db.commit()
+    return {"added": added, "skipped": skipped, "total_after": added + len(existing_keys)}
+
+
 # ── Custom photo surcharges ────────────────────────────────────────────────────
 
 
