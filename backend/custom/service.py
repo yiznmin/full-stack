@@ -135,6 +135,36 @@ def render_watermarked_preview(
     return out.getvalue()
 
 
+async def _resolve_quote_preview_job(
+    db: AsyncSession, req: CustomRequest,
+) -> ProductionJob | None:
+    """決定客戶報價頁要看到的 production_job。
+
+    優先順序：
+    1. req.quoted_production_job_id（admin 在 QuoteDialog 選定的）
+    2. fallback：最新一筆有 filled_template_url 的 job（向後相容舊 quote）
+    """
+    if req.quoted_production_job_id:
+        result = await db.execute(
+            select(ProductionJob).where(
+                ProductionJob.id == req.quoted_production_job_id,
+                ProductionJob.filled_template_url.isnot(None),
+            )
+        )
+        job = result.scalar_one_or_none()
+        if job is not None:
+            return job
+        # quoted job 被刪 / 缺 filled → fallback
+
+    result = await db.execute(
+        select(ProductionJob).where(
+            ProductionJob.custom_request_id == req.id,
+            ProductionJob.filled_template_url.isnot(None),
+        ).order_by(ProductionJob.created_at.desc())
+    )
+    return result.scalars().first()
+
+
 async def fetch_filled_template_bytes(filled_template_url: str | None) -> bytes | None:
     """抓 production_job.filled_template_url（gs:// 或 https）的原始 bytes。
 
@@ -513,15 +543,10 @@ async def get_quote_summary(
         for m in msgs_result.scalars().all()
     ]
 
-    # 是否有可預覽的 production_job（最近一筆 approved 的 filled_template_url）
-    job_result = await db.execute(
-        select(ProductionJob).where(
-            ProductionJob.custom_request_id == req.id,
-            ProductionJob.filled_template_url.isnot(None),
-        ).order_by(ProductionJob.created_at.desc())
-    )
-    latest_job = job_result.scalars().first()
-    preview_available = latest_job is not None
+    # 是否有可預覽的 production_job（優先 quoted_production_job_id，
+    # 否則 fallback 到最新一筆 filled）
+    quote_job = await _resolve_quote_preview_job(db, req)
+    preview_available = quote_job is not None
 
     # 原子 UPDATE 累加 view_count（avoid 多 client 同時 GET 漏算）
     from sqlalchemy import update  # noqa: PLC0415
@@ -572,17 +597,11 @@ async def admin_get_preview_watermark(
     if req is None:
         raise NotFoundError("客製申請不存在")
 
-    job_result = await db.execute(
-        select(ProductionJob).where(
-            ProductionJob.custom_request_id == req.id,
-            ProductionJob.filled_template_url.isnot(None),
-        ).order_by(ProductionJob.created_at.desc())
-    )
-    latest_job = job_result.scalars().first()
-    if latest_job is None:
+    quote_job = await _resolve_quote_preview_job(db, req)
+    if quote_job is None:
         raise NotFoundError("尚無可預覽的製作圖")
 
-    raw_bytes = await fetch_filled_template_bytes(latest_job.filled_template_url)
+    raw_bytes = await fetch_filled_template_bytes(quote_job.filled_template_url)
     if raw_bytes is None:
         raise NotFoundError("預覽圖無法載入")
 
@@ -615,18 +634,12 @@ async def get_quote_preview_image(
             code="QUOTE_VIEW_LIMIT_REACHED",
         )
 
-    job_result = await db.execute(
-        select(ProductionJob).where(
-            ProductionJob.custom_request_id == req.id,
-            ProductionJob.filled_template_url.isnot(None),
-        ).order_by(ProductionJob.created_at.desc())
-    )
-    latest_job = job_result.scalars().first()
-    if latest_job is None:
+    quote_job = await _resolve_quote_preview_job(db, req)
+    if quote_job is None:
         raise NotFoundError("尚無可預覽的製作圖")
 
     # 拿原圖 bytes → 浮水印處理
-    raw_bytes = await fetch_filled_template_bytes(latest_job.filled_template_url)
+    raw_bytes = await fetch_filled_template_bytes(quote_job.filled_template_url)
     if raw_bytes is None:
         raise NotFoundError("預覽圖無法載入")
 
@@ -1059,8 +1072,16 @@ async def admin_send_quote(
     detail: str | None,
     surcharge_ids: list[UUID] | None,
     quote_note: str | None,
+    production_job_id: UUID | None = None,
 ) -> tuple[CustomRequest, str]:
-    """Returns (request, plain_token). Plain token is included in email link."""
+    """Returns (request, plain_token). Plain token is included in email link.
+
+    production_job_id：admin 在 QuoteDialog 選定的 completed job。
+    寫入 quoted_production_job_id 後，customer 看到的 preview / 規格都從該 job 拿，
+    不再用「最新一筆 filled」的猜測。
+    canvas / difficulty / detail 也同步從 job 帶到 custom_request（admin 製作出來的
+    版本可能與客戶原申請不同 — admin 為準）。
+    """
     result = await db.execute(
         select(CustomRequest).where(CustomRequest.id == request_id).with_for_update()
     )
@@ -1074,12 +1095,43 @@ async def admin_send_quote(
     ):
         raise BadRequestError("此申請狀態不允許送出報價")
 
+    # 驗證 production_job_id 並從中同步規格（若指定）
+    if production_job_id is not None:
+        job_result = await db.execute(
+            select(ProductionJob).where(
+                ProductionJob.id == production_job_id,
+                ProductionJob.custom_request_id == request_id,
+            )
+        )
+        job = job_result.scalar_one_or_none()
+        if job is None:
+            raise BadRequestError(
+                "production_job_id 不屬於此申請",
+                code="INVALID_PRODUCTION_JOB",
+            )
+        if str(job.status) != "completed":
+            raise BadRequestError(
+                f"job 必須為 completed 狀態才能用作報價（目前：{job.status}）",
+                code="PRODUCTION_JOB_NOT_COMPLETED",
+            )
+        req.quoted_production_job_id = production_job_id
+        # 以 admin 實際做出來的規格為準
+        if job.canvas_w_cm:
+            req.canvas_w_cm = int(job.canvas_w_cm)
+        if job.canvas_h_cm:
+            req.canvas_h_cm = int(job.canvas_h_cm)
+        if job.difficulty:
+            req.difficulty = job.difficulty
+        if job.detail:
+            req.detail = job.detail
+
     plain_token = secrets.token_urlsafe(32)
     req.quoted_price = Decimal(str(quoted_price))
     req.quote_token = _hash_token(plain_token)
     req.quote_expires_at = datetime.now(UTC) + timedelta(hours=24)
     req.quoted_at = datetime.now(UTC)
     req.status = CustomRequestStatusEnum.quote_sent
+    # detail param 仍允許覆蓋（job 沒設或 admin 想用不同 detail）
     if detail:
         from production.models import DetailEnum
         req.detail = DetailEnum(detail)

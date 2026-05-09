@@ -462,6 +462,7 @@ async def admin_send_quote(
     req, _token = await service.admin_send_quote(
         db, request_id, body.quoted_price,
         body.detail, body.surcharge_ids, body.quote_note,
+        production_job_id=body.production_job_id,
     )
     return AdminSendQuoteResponse(
         id=req.id, status=req.status.value,

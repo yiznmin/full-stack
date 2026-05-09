@@ -67,6 +67,14 @@ class CustomRequest(Base):
         UUID(as_uuid=True), ForeignKey("custom_requests.id"), nullable=True
     )
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=True)
+    # admin 在 QuoteDialog 選定的 production_job — 綁這個 job 的 filled_template
+    # 給客戶看 + 用該 job 的 canvas / difficulty / detail 作為最終規格。
+    # nullable：舊資料未綁；customer 端 quote_summary fallback 到「最新一筆 filled」。
+    quoted_production_job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("production_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     admin_notes = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     quoted_at = Column(TIMESTAMP(timezone=True), nullable=True)

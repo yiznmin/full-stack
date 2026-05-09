@@ -77,6 +77,13 @@ async def init_schema() -> None:
                 "ALTER TABLE shipments "
                 "ADD COLUMN IF NOT EXISTS last_status_at TIMESTAMP WITH TIME ZONE"
             ))
+            # admin 在 QuoteDialog 選定的 production_job — 報價綁這個 job 的 filled_template
+            # （preview / 規格都從該 job 拿，不再用「最新一筆 filled」的猜測）
+            await conn.execute(text(
+                "ALTER TABLE custom_requests "
+                "ADD COLUMN IF NOT EXISTS quoted_production_job_id UUID "
+                "REFERENCES production_jobs(id) ON DELETE SET NULL"
+            ))
 
             # Backfill：已有 shipment 的訂單視為「已確認出貨資訊」（之前無此欄位的歷史訂單）
             print("[init_db] backfilling shipping_locked for shipped orders ...", flush=True)

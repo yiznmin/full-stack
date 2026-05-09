@@ -92,6 +92,10 @@ class RequestRevisionRequest(BaseModel):
 
 class AdminSendQuoteRequest(BaseModel):
     quoted_price: float
+    # admin 在 QuoteDialog 選定的 completed production_job —
+    # 報價綁定它的 canvas / difficulty / detail / filled_template_url。
+    # nullable：向後相容，沒指定就 fallback 到「最新一筆 filled」（舊行為）。
+    production_job_id: UUID | None = None
     detail: Literal["rough", "standard", "detailed", "premium"] | None = None
     surcharge_ids: list[UUID] | None = None
     quote_note: str | None = None
