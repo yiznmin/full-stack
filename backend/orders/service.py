@@ -480,6 +480,10 @@ async def _deduct_stock(
     """
     actual_fulfilled: list[int] = []
     for item in order_items:
+        # 客製 line：不扣庫存（admin 為該訂單專做、不在公開庫存表）
+        if item.get("is_custom"):
+            actual_fulfilled.append(0)
+            continue
         job_id = item["production_job_id"]
         quantity = item["quantity"]
 
@@ -622,22 +626,26 @@ async def create_order(
     promo_code: str | None,
     customer_notes: str | None,
 ) -> dict:
-    # 1. Load and validate cart
-    cart_result = await db.execute(
-        select(CartItem, ProductVariant, Product, ProductionJob)
-        .join(ProductVariant, CartItem.product_variant_id == ProductVariant.id)
-        .join(Product, ProductVariant.product_id == Product.id)
-        .outerjoin(ProductionJob, ProductVariant.production_job_id == ProductionJob.id)
+    """建單：cart 同時含一般商品 + 客製 line 時都處理。
+
+    分支邏輯：
+    - 一般 line：透過 product_variant_id join 拿 variant.price + product.title；
+      走 _deduct_stock 鎖庫存
+    - 客製 line：透過 custom_request_id 拿 quoted_price + production_job 規格；
+      不扣庫存（admin 為該訂單專做），全 preorder
+    - 免運門檻只算一般商品 subtotal/qty（user 要求；客製不計入）
+    - 結帳成功後 custom_request 狀態 → quote_confirmed
+    """
+    from custom.models import CustomRequest, CustomRequestStatusEnum  # noqa: PLC0415
+
+    # 1. Load all cart rows（一般 + 客製）
+    cart_rows = (await db.execute(
+        select(CartItem)
         .where(CartItem.user_id == user_id)
         .order_by(CartItem.created_at)
-    )
-    cart_rows = cart_result.all()
+    )).scalars().all()
     if not cart_rows:
         raise BadRequestError("購物車為空")
-
-    for _, variant, _, _job in cart_rows:
-        if not variant.is_active:
-            raise ConflictError("購物車中有商品已下架，請更新購物車")
 
     # 2. Validate shipping profile belongs to user
     profile_result = await db.execute(
@@ -652,26 +660,96 @@ async def create_order(
 
     shipping_type = _enum_val(profile.shipping_type)
 
-    # 3. Calculate totals (fulfilled_qty determined later via locked stock read)
+    # 3. 拼 order_items_data — 分一般/客製
     subtotal = Decimal("0")
-    order_items_data = []
-    for cart_item, variant, product, job in cart_rows:
-        line_subtotal = Decimal(str(variant.price)) * cart_item.quantity
+    non_custom_subtotal = Decimal("0")
+    non_custom_qty = 0
+    order_items_data: list[dict] = []
+    custom_request_ids_to_confirm: list[UUID] = []
+
+    for ci in cart_rows:
+        qty = ci.quantity
+        if ci.custom_request_id is not None:
+            # 客製 line — 從 custom_request 取 quoted_price，從 production_job 取規格
+            cr = (await db.execute(
+                select(CustomRequest).where(CustomRequest.id == ci.custom_request_id)
+            )).scalar_one_or_none()
+            if cr is None:
+                raise ConflictError("購物車內的客製申請已被刪除", code="CUSTOM_REQUEST_GONE")
+            if cr.status != CustomRequestStatusEnum.quote_sent:
+                raise ConflictError(
+                    f"客製申請 #{str(cr.id)[:8]} 狀態不允許結帳",
+                    code="QUOTE_NOT_PENDING",
+                )
+            if cr.quote_expires_at and cr.quote_expires_at < datetime.now(UTC):
+                raise ConflictError(
+                    f"客製申請 #{str(cr.id)[:8]} 報價已過期，請移除或重新申請",
+                    code="QUOTE_EXPIRED",
+                )
+            unit_price = Decimal(str(cr.quoted_price)) if cr.quoted_price else Decimal("0")
+            line_subtotal = unit_price * qty
+            subtotal += line_subtotal
+            # 拿 production_job 規格（snapshot）
+            job = None
+            if ci.production_job_id:
+                job = (await db.execute(
+                    select(ProductionJob).where(ProductionJob.id == ci.production_job_id)
+                )).scalar_one_or_none()
+            spec_snapshot = {
+                "canvas_w_cm": float(job.canvas_w_cm) if job and job.canvas_w_cm else None,
+                "canvas_h_cm": float(job.canvas_h_cm) if job and job.canvas_h_cm else None,
+                "difficulty": _enum_val(job.difficulty) if job else None,
+                "detail": _enum_val(job.detail) if job else None,
+                "color_count": job.num_colors_used if job else None,
+                "is_custom": True,
+            }
+            order_items_data.append({
+                "is_custom": True,
+                "product_variant_id": None,
+                "custom_request_id": ci.custom_request_id,
+                "production_job_id": ci.production_job_id,
+                "product_title_snapshot": "客製作品",
+                "variant_spec_snapshot": spec_snapshot,
+                "unit_price": unit_price,
+                "quantity": qty,
+                "fulfilled_qty": 0,  # 客製全 preorder，admin 製作
+                "preorder_qty": qty,
+            })
+            custom_request_ids_to_confirm.append(ci.custom_request_id)
+            continue
+
+        # 一般 line — variant + product + job
+        if ci.product_variant_id is None:
+            continue  # 異常資料：兩個 FK 都空，跳過
+        row = (await db.execute(
+            select(ProductVariant, Product, ProductionJob)
+            .join(Product, ProductVariant.product_id == Product.id)
+            .outerjoin(ProductionJob, ProductVariant.production_job_id == ProductionJob.id)
+            .where(ProductVariant.id == ci.product_variant_id)
+        )).one_or_none()
+        if row is None:
+            raise ConflictError("購物車內有商品已下架", code="VARIANT_GONE")
+        variant, product, job = row
+        if not variant.is_active:
+            raise ConflictError("購物車中有商品已下架，請更新購物車")
+        unit_price = Decimal(str(variant.price))
+        line_subtotal = unit_price * qty
         subtotal += line_subtotal
+        non_custom_subtotal += line_subtotal
+        non_custom_qty += qty
         spec_snapshot = _job_spec(job) if job else {}
-        qty = cart_item.quantity
         order_items_data.append({
+            "is_custom": False,
             "product_variant_id": variant.id,
+            "custom_request_id": None,
             "production_job_id": variant.production_job_id,
             "product_title_snapshot": product.title,
             "variant_spec_snapshot": spec_snapshot,
-            "unit_price": variant.price,
+            "unit_price": unit_price,
             "quantity": qty,
             "fulfilled_qty": qty,  # placeholder; corrected by _deduct_stock below
             "preorder_qty": 0,
         })
-
-    total_qty = sum(d["quantity"] for d in order_items_data)
 
     # 4. Pre-generate order ID so apply_discount can record it
     order_id = uuid.uuid4()
@@ -680,7 +758,11 @@ async def create_order(
         db, order_id, user_id, float(subtotal), user_coupon_id, promo_code
     )
     discount_amount = Decimal(str(discount_calc["discount_amount"]))
-    shipping_fee = _compute_shipping_fee(subtotal, total_qty, shipping_type)
+    free_shipping_coupon = bool(discount_calc.get("free_shipping"))
+    # 免運門檻：金額 + 件數都不算客製，但免運券 trump everything（與 preview 一致）
+    shipping_fee = _compute_shipping_fee(
+        non_custom_subtotal, non_custom_qty, shipping_type, free_shipping_coupon,
+    )
     total = subtotal - discount_amount + shipping_fee
 
     # 5. Generate order_number
@@ -735,12 +817,13 @@ async def create_order(
         item_data["fulfilled_qty"] = fulfilled
         item_data["preorder_qty"] = item_data["quantity"] - fulfilled
 
-    # 8. Insert order items with corrected fulfilled/preorder quantities
+    # 8. Insert order items（含 custom_request_id 連結客製申請與訂單）
     inserted_items = []
     for item_data in order_items_data:
         oi = OrderItem(
             order_id=order.id,
             product_variant_id=item_data["product_variant_id"],
+            custom_request_id=item_data.get("custom_request_id"),
             production_job_id=item_data["production_job_id"],
             product_title_snapshot=item_data["product_title_snapshot"],
             variant_spec_snapshot=item_data["variant_spec_snapshot"],
@@ -754,10 +837,35 @@ async def create_order(
 
     await db.flush()
 
-    # 9. Delete cart items
+    # 9. 客製申請 status → quote_confirmed + 綁 order_id（用於後續 admin 製作流程）
+    if custom_request_ids_to_confirm:
+        await db.execute(
+            update(CustomRequest)
+            .where(CustomRequest.id.in_(custom_request_ids_to_confirm))
+            .values(status=CustomRequestStatusEnum.quote_confirmed, order_id=order.id)
+        )
+
+    # 10. Delete cart items
     await db.execute(delete(CartItem).where(CartItem.user_id == user_id))
 
     await db.commit()
+
+    # SSE: 通知 admin 客戶已確認所有客製報價（如果有）
+    for cr_id in custom_request_ids_to_confirm:
+        try:
+            from custom.service import _publish_to_admin, _publish_to_customer  # noqa: PLC0415
+            _publish_to_admin("quote_confirmed", {
+                "request_id": str(cr_id),
+                "order_id": str(order.id),
+                "order_number": order_number,
+            })
+            _publish_to_customer(cr_id, "status_changed", {
+                "request_id": str(cr_id),
+                "status": "quote_confirmed",
+                "order_id": str(order.id),
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.warning("SSE publish for quote_confirmed failed: %s", e)
 
     # 10. Send confirmation email
     payment_info = await _get_payment_info(db)
