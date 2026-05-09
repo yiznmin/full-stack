@@ -127,12 +127,13 @@ export function useQuoteSummaryQuery(
 export function useConfirmQuoteMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ token, shipping_profile_id }: { token: string; shipping_profile_id: string }) =>
-      customApi.confirmQuote(token, shipping_profile_id),
+    mutationFn: ({ token, quantity }: { token: string; quantity?: number }) =>
+      customApi.confirmQuote(token, quantity ?? 1),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: customQueryKeys.all })
       queryClient.invalidateQueries({ queryKey: customQueryKeys.quote(vars.token) })
-      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      // cart 也要 refetch（剛加進去）
+      queryClient.invalidateQueries({ queryKey: ['cart'] })
     },
   })
 }

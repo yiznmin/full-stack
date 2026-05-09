@@ -20,26 +20,38 @@ const isEmpty = computed(
   () => !cartQuery.isPending.value && items.value.length === 0,
 )
 
-const totalQty = computed(() =>
-  items.value.reduce((sum, i) => sum + i.quantity, 0),
+// 免運門檻計算：客製商品不計入（金額 + 件數都不算）
+// 例外：使用免運券時 trump everything（cart preview 端 backend 處理）
+const nonCustomItems = computed(() => items.value.filter((i) => !i.is_custom))
+const customItems = computed(() => items.value.filter((i) => i.is_custom))
+const nonCustomSubtotal = computed(() =>
+  nonCustomItems.value.reduce((sum, i) => sum + i.unit_price * i.quantity, 0),
+)
+const nonCustomQty = computed(() =>
+  nonCustomItems.value.reduce((sum, i) => sum + i.quantity, 0),
 )
 const FREE_SHIPPING_AMOUNT = 800
 const FREE_SHIPPING_QTY = 3
 const freeShippingProgress = computed(() => {
-  const byAmount = Math.min(subtotal.value / FREE_SHIPPING_AMOUNT, 1)
-  const byQty = Math.min(totalQty.value / FREE_SHIPPING_QTY, 1)
+  const byAmount = Math.min(nonCustomSubtotal.value / FREE_SHIPPING_AMOUNT, 1)
+  const byQty = Math.min(nonCustomQty.value / FREE_SHIPPING_QTY, 1)
   return Math.max(byAmount, byQty)
 })
 const freeShippingHit = computed(
-  () => subtotal.value >= FREE_SHIPPING_AMOUNT || totalQty.value >= FREE_SHIPPING_QTY,
+  () =>
+    nonCustomSubtotal.value >= FREE_SHIPPING_AMOUNT
+    || nonCustomQty.value >= FREE_SHIPPING_QTY,
 )
 const freeShippingRemaining = computed(() => {
   if (freeShippingHit.value) return null
-  const amountGap = FREE_SHIPPING_AMOUNT - subtotal.value
-  const qtyGap = FREE_SHIPPING_QTY - totalQty.value
+  const amountGap = FREE_SHIPPING_AMOUNT - nonCustomSubtotal.value
+  const qtyGap = FREE_SHIPPING_QTY - nonCustomQty.value
   if (amountGap <= 0 && qtyGap <= 0) return null
   return { amount: amountGap, qty: qtyGap }
 })
+const hasExpiredCustom = computed(() =>
+  customItems.value.some((i) => i.quote_expired),
+)
 
 function isJobSpec(spec: CartItem['variant_spec']): spec is VariantSpec {
   return 'canvas_w_cm' in spec
@@ -154,11 +166,21 @@ function goCheckout() {
                 :to="`/products/${item.product_id}`"
                 class="title-link"
               >{{ item.product_title }}</RouterLink>
+              <RouterLink
+                v-else-if="item.is_custom && item.custom_request_id"
+                :to="`/custom/requests/${item.custom_request_id}`"
+                class="title-link"
+              >{{ item.product_title }}</RouterLink>
               <span v-else>{{ item.product_title }}</span>
+              <span v-if="item.is_custom" class="item-badge item-badge-custom">客製</span>
+              <span v-if="item.quote_expired" class="item-badge item-badge-warn">報價已過期</span>
               <span v-if="!item.is_active" class="item-badge">已下架</span>
             </h3>
             <p v-if="specSummary(item)" class="item-spec">{{ specSummary(item) }}</p>
-            <p v-if="item.preorder_units > 0" class="item-preorder">
+            <p v-if="item.is_custom" class="item-custom-hint">
+              此商品為客製訂單 · 不計入免運門檻（除非使用免運券）
+            </p>
+            <p v-else-if="item.preorder_units > 0" class="item-preorder">
               現貨 {{ item.fulfilled_units }} 件 · 預購 {{ item.preorder_units }} 件
             </p>
           </div>
@@ -209,16 +231,22 @@ function goCheckout() {
         <div class="summary-card">
           <h2 class="summary-title">訂單摘要</h2>
 
-          <!-- 免運進度 -->
+          <!-- 免運進度（客製不計） -->
           <div class="ship-progress">
             <p v-if="freeShippingHit" class="ship-hit">已享免運 ✓</p>
             <p v-else class="ship-pending">
-              再 NT$ {{ Math.max(0, FREE_SHIPPING_AMOUNT - subtotal).toLocaleString() }}
-              或加 {{ Math.max(0, FREE_SHIPPING_QTY - totalQty) }} 件 即享免運
+              再 NT$ {{ Math.max(0, FREE_SHIPPING_AMOUNT - nonCustomSubtotal).toLocaleString() }}
+              或加 {{ Math.max(0, FREE_SHIPPING_QTY - nonCustomQty) }} 件 即享免運
             </p>
             <div class="ship-bar">
               <div class="ship-bar-fill" :style="{ width: `${freeShippingProgress * 100}%` }"></div>
             </div>
+            <p v-if="customItems.length > 0" class="ship-note">
+              ⓘ 客製商品不計入免運門檻（金額 + 件數），除非使用免運券
+            </p>
+            <p v-if="hasExpiredCustom" class="ship-warn">
+              ⚠ 購物車內有過期的客製報價，結帳前請移除或重新申請
+            </p>
           </div>
 
           <dl class="summary-rows">
@@ -443,6 +471,21 @@ function goCheckout() {
   border-radius: var(--radius-xs);
   text-transform: uppercase;
 }
+.item-badge-custom {
+  color: var(--color-accent-deep);
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+.item-badge-warn {
+  color: var(--color-state-warning);
+  border-color: var(--color-state-warning);
+}
+.item-custom-hint {
+  font-size: 11px; line-height: 1.6;
+  color: var(--color-ink-muted);
+  margin: 4px 0 0;
+  letter-spacing: 0.02em;
+}
 .item-spec {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -569,6 +612,20 @@ function goCheckout() {
   height: 100%;
   background: var(--color-fresh);
   transition: width 400ms ease;
+}
+.ship-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-ink-muted);
+  letter-spacing: 0.02em;
+}
+.ship-warn {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-state-warning);
+  letter-spacing: 0.02em;
 }
 
 .summary-rows {

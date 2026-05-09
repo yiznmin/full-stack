@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useQuery } from '@tanstack/vue-query'
 import {
-  ArrowLeft, CheckCircle2, Clock, Loader2, MapPin, RefreshCcw, Store as StoreIcon, X,
+  ArrowLeft, Clock, Loader2, Minus, Plus, RefreshCcw, ShoppingCart, X,
 } from 'lucide-vue-next'
 import {
   useQuoteSummaryQuery,
@@ -12,7 +11,6 @@ import {
   useExtendQuoteMutation,
   useRequestRevisionMutation,
 } from '../queries'
-import * as profileApi from '@/features/profile/api'
 import { quotePreviewUrl, type ApiError } from '../api'
 
 const route = useRoute()
@@ -21,12 +19,6 @@ const token = computed(() => route.params.token as string)
 
 const summaryQuery = useQuoteSummaryQuery(token)
 const summary = computed(() => summaryQuery.data.value)
-
-// Shipping profiles
-const profilesQuery = useQuery({
-  queryKey: ['shipping-profiles'] as const,
-  queryFn: profileApi.listShippingProfiles,
-})
 
 const confirmMut = useConfirmQuoteMutation()
 const rejectMut = useRejectQuoteMutation()
@@ -37,7 +29,7 @@ const reviseMut = useRequestRevisionMutation()
 const showConfirm = ref(false)
 const showReject = ref(false)
 const showRevise = ref(false)
-const selectedProfileId = ref<string | null>(null)
+const quantity = ref(1)
 const rejectReason = ref('')
 const reviseReason = ref('')
 const actionError = ref<string | null>(null)
@@ -61,32 +53,28 @@ const isExpired = computed(() => {
   return !expiresIn.value
 })
 
-// 預設選第一個地址（is_default 優先）
-const defaultProfile = computed(() => {
-  const profiles = profilesQuery.data.value ?? []
-  return profiles.find((p) => p.is_default) ?? profiles[0] ?? null
-})
 function openConfirm() {
-  selectedProfileId.value = defaultProfile.value?.id ?? null
+  quantity.value = 1
   actionError.value = null
   showConfirm.value = true
 }
 
 async function doConfirm() {
-  if (!selectedProfileId.value) {
-    actionError.value = '請選擇配送資料'
+  if (quantity.value < 1) {
+    actionError.value = '數量需至少 1 件'
     return
   }
   actionError.value = null
   try {
-    const order = await confirmMut.mutateAsync({
+    await confirmMut.mutateAsync({
       token: token.value,
-      shipping_profile_id: selectedProfileId.value,
+      quantity: quantity.value,
     })
     showConfirm.value = false
-    router.replace({ name: 'order-detail', params: { id: order.order_id } })
+    // 加進 cart 後跳購物車（user 可繼續逛 / 結帳）
+    router.replace('/cart')
   } catch (e) {
-    actionError.value = (e as Error).message || '送出失敗'
+    actionError.value = (e as Error).message || '加入購物車失敗'
   }
 }
 
@@ -304,7 +292,7 @@ function canExtend() {
       <!-- 操作按鈕 -->
       <section class="actions" v-if="!isExpired">
         <button class="btn-primary" @click="openConfirm">
-          <CheckCircle2 :size="16" :stroke-width="1.5" /> 確認報價並下單
+          <ShoppingCart :size="16" :stroke-width="1.5" /> 確認並加入購物車
         </button>
         <button class="btn-secondary" @click="showRevise = true">
           要求修改（剩餘 {{ 3 - summary.revision_count }} 次）
@@ -315,64 +303,66 @@ function canExtend() {
       </section>
     </template>
 
-    <!-- ── 確認下單 modal ────────────────────────────────────── -->
+    <!-- ── 加入購物車 modal ────────────────────────────────────── -->
     <Teleport to="body">
-      <div v-if="showConfirm" class="modal-overlay" @click.self="showConfirm = false">
+      <div v-if="showConfirm && summary" class="modal-overlay" @click.self="showConfirm = false">
         <div class="modal">
           <header class="modal-hd">
-            <h3>選擇配送方式</h3>
+            <h3>加入購物車</h3>
             <button @click="showConfirm = false" aria-label="關閉"><X :size="16" /></button>
           </header>
           <div class="modal-body">
-            <div v-if="profilesQuery.isPending.value" class="state">
-              <Loader2 :size="18" class="spin" /> 載入中
+            <p class="modal-desc">
+              此客製作品將加進購物車，您可以與其他商品一起結帳，或繼續瀏覽再付款。
+            </p>
+
+            <div class="qty-row">
+              <span class="qty-label">數量</span>
+              <div class="qty-stepper">
+                <button
+                  type="button"
+                  class="qty-btn"
+                  :disabled="quantity <= 1"
+                  @click="quantity = Math.max(1, quantity - 1)"
+                >
+                  <Minus :size="14" :stroke-width="1.5" />
+                </button>
+                <span class="qty-value">{{ quantity }}</span>
+                <button
+                  type="button"
+                  class="qty-btn"
+                  :disabled="quantity >= 10"
+                  @click="quantity = Math.min(10, quantity + 1)"
+                >
+                  <Plus :size="14" :stroke-width="1.5" />
+                </button>
+              </div>
             </div>
-            <div v-else-if="(profilesQuery.data.value ?? []).length === 0" class="state empty">
-              <p>您尚未建立任何配送資料。</p>
-              <RouterLink to="/profile/shipping" class="cta">前往新增 →</RouterLink>
+
+            <div class="qty-summary">
+              <div class="qty-summary-row">
+                <span>單價</span>
+                <span class="font-mono">NT$ {{ summary.quoted_price.toLocaleString() }}</span>
+              </div>
+              <div class="qty-summary-row total">
+                <span>小計（{{ quantity }} 件）</span>
+                <span class="font-mono">NT$ {{ (summary.quoted_price * quantity).toLocaleString() }}</span>
+              </div>
             </div>
-            <ul v-else class="profiles">
-              <li
-                v-for="p in profilesQuery.data.value"
-                :key="p.id"
-                class="profile"
-                :class="{ active: selectedProfileId === p.id }"
-                @click="selectedProfileId = p.id"
-              >
-                <div class="profile-icon">
-                  <component :is="p.shipping_type === 'home' ? MapPin : StoreIcon" :size="16" />
-                </div>
-                <div class="profile-text">
-                  <div class="profile-name">
-                    {{ p.recipient_name }}
-                    <span v-if="p.is_default" class="default-tag">預設</span>
-                  </div>
-                  <div class="profile-detail">
-                    <template v-if="p.shipping_type === 'home'">
-                      {{ p.city }}{{ p.district }}{{ p.address_detail }}
-                    </template>
-                    <template v-else>
-                      {{ p.store_name || p.store_id }}
-                    </template>
-                  </div>
-                  <div class="profile-phone">{{ p.phone }}</div>
-                </div>
-                <div class="profile-fee">
-                  +NT$ {{ p.shipping_type === 'home' ? 120 : 70 }}
-                </div>
-              </li>
-            </ul>
+
+            <p class="qty-note">運費將於購物車結帳時依配送方式計算（客製商品不計入免運門檻，除非使用免運券）。</p>
           </div>
           <p v-if="actionError" class="error">{{ actionError }}</p>
           <footer class="modal-ft">
             <button class="btn-secondary" @click="showConfirm = false">取消</button>
             <button
               class="btn-primary"
-              :disabled="!selectedProfileId || confirmMut.isPending.value"
+              :disabled="confirmMut.isPending.value"
               @click="doConfirm"
             >
               <Loader2 v-if="confirmMut.isPending.value" :size="14" class="spin" />
-              確認下單
+              <ShoppingCart v-else :size="14" :stroke-width="1.5" />
+              加入購物車
             </button>
           </footer>
         </div>
@@ -776,6 +766,59 @@ function canExtend() {
   background: var(--color-paper-surface); color: var(--color-ink-default);
 }
 .modal-body textarea:focus { outline: none; border-color: var(--color-accent); }
+
+.qty-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 0; border-bottom: 1px solid var(--color-line-subtle);
+  margin-bottom: 16px;
+}
+.qty-label { font-size: 14px; color: var(--color-ink-strong); }
+.qty-stepper {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--color-line); border-radius: var(--radius-xs);
+  background: var(--color-paper-canvas);
+}
+.qty-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--color-ink-default);
+}
+.qty-btn:hover:not(:disabled) {
+  color: var(--color-accent-deep);
+  background: var(--color-paper-surface);
+}
+.qty-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.qty-value {
+  min-width: 40px; text-align: center;
+  font-family: var(--font-mono); font-size: 15px;
+  color: var(--color-ink-strong);
+}
+
+.qty-summary {
+  background: var(--color-paper-deep);
+  border-radius: var(--radius-xs);
+  padding: 14px 16px;
+}
+.qty-summary-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px; color: var(--color-ink-default);
+  padding: 4px 0;
+}
+.qty-summary-row.total {
+  border-top: 1px solid var(--color-line-subtle);
+  margin-top: 4px; padding-top: 8px;
+  font-size: 16px; color: var(--color-ink-strong); font-weight: 500;
+}
+
+.qty-note {
+  margin-top: 14px;
+  font-size: 11px; line-height: 1.7;
+  color: var(--color-ink-muted);
+  letter-spacing: 0.04em;
+}
+
+.font-mono { font-family: var(--font-mono); }
 
 .empty p { font-size: 14px; margin: 0 0 12px; }
 

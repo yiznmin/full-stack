@@ -15,13 +15,25 @@ export interface VariantSpec {
 
 export interface CartItem {
   id: string
-  variant_id: string
+  /** true = 客製作品（綁 custom_request_id 而非 product_variant） */
+  is_custom: boolean
+  variant_id: string | null
   product_id?: string | null
   product_title: string
   product_image_url?: string | null
   variant_image_url?: string | null
   thumb_url?: string | null
   variant_spec: VariantSpec | Record<string, never>
+  /** 客製：對應的 custom_request id（非客製為 null）*/
+  custom_request_id?: string | null
+  /** 客製：admin 在 QuoteDialog 選定的 production_job */
+  production_job_id?: string | null
+  /** 客製：報價狀態 */
+  quote_status?: string | null
+  /** 客製：報價過期時間 */
+  quote_expires_at?: string | null
+  /** 客製：報價是否已過期（前端結帳前需警告） */
+  quote_expired?: boolean
   unit_price: number
   quantity: number
   fulfilled_units: number
@@ -49,10 +61,17 @@ export interface CheckoutPreviewSplitItem {
 
 export interface CheckoutPreviewResponse {
   subtotal: number
+  /** 一般商品 subtotal（免運門檻計算用，排除客製） */
+  non_custom_subtotal?: number
+  /** 一般商品總件數（免運門檻計算用） */
+  non_custom_qty?: number
+  /** cart 內過期的客製 line 數量（>0 → 結帳前需提醒移除/重新申請） */
+  expired_custom_count?: number
   discount_amount: number
   discount_source: string | null
   shipping_fee: number
   total: number
+  /** 'amount' / 'quantity' / 'coupon'（免運券）/ null */
   free_shipping_reason: string | null
   has_preorder: boolean
   split_items: CheckoutPreviewSplitItem[]

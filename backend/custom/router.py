@@ -330,7 +330,7 @@ async def confirm_quote(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.confirm_quote(
-        db, current_user.id, token, body.shipping_profile_id
+        db, current_user.id, token, body.quantity
     )
 
 

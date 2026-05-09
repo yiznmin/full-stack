@@ -124,17 +124,12 @@ export interface QuoteSummaryResponse {
   max_views: number
 }
 
+/** 客戶確認報價 → 加進購物車（不再直接建 Order；地址在 cart 結帳時選） */
 export interface ConfirmQuoteResponse {
-  order_id: string
-  order_number: string
-  total: number
-  payment_deadline: string
-  payment_info: {
-    bank_account_number?: string
-    bank_name?: string
-    bank_account_name?: string
-    [key: string]: string | undefined
-  }
+  cart_item_id: string
+  custom_request_id: string
+  quantity: number
+  quoted_price: number
 }
 
 export interface RejectQuoteResponse {
@@ -303,11 +298,11 @@ export function quotePreviewUrl(token: string): string {
 /** POST /custom/quote/{token}/confirm — 確認報價，建立訂單 */
 export async function confirmQuote(
   token: string,
-  shipping_profile_id: string,
+  quantity: number = 1,
 ): Promise<ConfirmQuoteResponse> {
   return jsonRequest<ConfirmQuoteResponse>(`/custom/quote/${token}/confirm`, {
     method: 'POST',
-    body: JSON.stringify({ shipping_profile_id }),
+    body: JSON.stringify({ quantity }),
   })
 }
 

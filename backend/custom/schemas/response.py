@@ -132,11 +132,11 @@ class QuoteSummaryResponse(BaseModel):
 
 
 class ConfirmQuoteResponse(BaseModel):
-    order_id: UUID
-    order_number: str
-    total: float
-    payment_deadline: datetime
-    payment_info: dict
+    """確認報價後 → cart_item 已建立。前端跳 /cart。"""
+    cart_item_id: UUID
+    custom_request_id: UUID
+    quantity: int
+    quoted_price: float
 
 
 class RejectQuoteResponse(BaseModel):
