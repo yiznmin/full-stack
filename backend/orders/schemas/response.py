@@ -7,7 +7,11 @@ from pydantic import BaseModel
 class CartItemResponse(BaseModel):
     id: UUID
     variant_id: UUID
+    product_id: UUID | None = None
     product_title: str
+    product_image_url: str | None = None
+    variant_image_url: str | None = None
+    thumb_url: str | None = None
     variant_spec: dict
     unit_price: float
     quantity: int
@@ -59,6 +63,12 @@ class ShipmentResponse(BaseModel):
     shipment_type: str
     status: str
     tracking_number: str | None
+    ecpay_logistics_id: str | None = None
+    cvs_payment_no: str | None = None        # 寄貨編號（CVS）
+    cvs_validation_no: str | None = None     # 驗證碼（7-Eleven C2C）
+    last_rtn_code: int | None = None         # 最後收到的 ECpay 狀態碼
+    last_rtn_msg: str | None = None          # 最後狀態文字
+    last_status_at: datetime | None = None   # 最後狀態時間
     shipped_at: datetime | None
     delivered_at: datetime | None
 
@@ -121,6 +131,7 @@ class OrderDetailResponse(BaseModel):
     shipping_type: str
     shipping_preference: str | None
     shipping_snapshot: dict
+    shipping_locked: bool = False
     payment_deadline: datetime | None
     paid_at: datetime | None
     completed_at: datetime | None
@@ -135,6 +146,7 @@ class OrderDetailResponse(BaseModel):
     payment_submissions: list[PaymentSubmissionResponse]
     can_cancel: bool
     can_confirm_received: bool
+    can_modify_shipping: bool = False  # 客戶端用：true 才顯示「修改」按鈕
     created_at: datetime
 
     class Config:
@@ -172,6 +184,7 @@ class AdminOrderDetailResponse(BaseModel):
     shipping_type: str
     shipping_preference: str | None
     shipping_snapshot: dict
+    shipping_locked: bool = False
     payment_deadline: datetime | None
     paid_at: datetime | None
     completed_at: datetime | None
@@ -198,6 +211,22 @@ class CreateShipmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BatchShipmentResultItem(BaseModel):
+    """批次建單單筆結果（成功 or 失敗）."""
+    order_id: UUID
+    ok: bool
+    tracking_number: str | None = None
+    ecpay_logistics_id: str | None = None
+    error: str | None = None
+
+
+class BatchCreateShipmentResponse(BaseModel):
+    total: int
+    success: int
+    failed: int
+    results: list[BatchShipmentResultItem]
 
 
 class FlagPaymentSubmissionResponse(BaseModel):

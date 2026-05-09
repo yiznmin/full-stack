@@ -23,12 +23,14 @@ class SeriesCreateRequest(BaseModel):
     name: str
     description: str | None = None
     theme_id: UUID | None = None
+    is_featured: bool = False
 
 
 class SeriesUpdateRequest(BaseModel):
     name: str
     description: str | None = None
     theme_id: UUID | None = None
+    is_featured: bool = False
 
 
 class TagCreateRequest(BaseModel):
@@ -46,6 +48,7 @@ class ProductCreateRequest(BaseModel):
     series_id: UUID | None = None
     series_order: int | None = None
     status: ProductStatusEnum = ProductStatusEnum.draft
+    is_featured: bool = False
     tag_ids: list[UUID] = []
 
 
@@ -56,6 +59,7 @@ class ProductUpdateRequest(BaseModel):
     series_id: UUID | None = None
     series_order: int | None = None
     status: ProductStatusEnum
+    is_featured: bool = False
     tag_ids: list[UUID] = []
 
 

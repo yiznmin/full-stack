@@ -26,7 +26,7 @@ celery_app = Celery(
     "paintlearn",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["production.tasks", "custom.tasks", "orders.tasks"],
+    include=["production.tasks", "custom.tasks", "orders.tasks", "auth.tasks"],
 )
 celery_app.conf.update(
     task_serializer="json",

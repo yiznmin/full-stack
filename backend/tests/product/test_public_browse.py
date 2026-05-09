@@ -393,5 +393,184 @@ async def test_public_tags(client, db):
     assert "product_count" not in body["items"][0]
 
 
+# ── Public Themes / Series ────────────────────────────────────────────────────
+
+
+from product.models import Theme  # noqa: E402
+
+
+async def _make_theme(db, *, name, sort_order=0, description=None, cover=None):
+    t = Theme(
+        name=name, description=description, cover_image_url=cover, sort_order=sort_order,
+    )
+    db.add(t)
+    await db.flush()
+    return t
+
+
+async def _make_series(db, *, name, theme_id=None, description=None):
+    s = ProductSeries(name=name, description=description, theme_id=theme_id)
+    db.add(s)
+    await db.flush()
+    return s
+
+
+@pytest.mark.asyncio
+async def test_list_themes_includes_counts(client, db):
+    """GET /themes 回傳所有主題，含 series_count 與 product_count（only on_sale）。"""
+    theme = await _make_theme(db, name="萌寵", sort_order=10)
+    series_a = await _make_series(db, name="貓咪", theme_id=theme.id)
+    series_b = await _make_series(db, name="狗狗", theme_id=theme.id)
+
+    job = await _make_job(db)
+    p1 = await _make_product(db, title="貓 1", series_id=series_a.id)
+    await _make_variant(db, p1.id, job.id)
+    p2 = await _make_product(db, title="貓 2 草稿", status=ProductStatusEnum.draft, series_id=series_a.id)
+    await _make_variant(db, p2.id, job.id)
+    await db.commit()
+    _ = series_b   # series_b 沒商品但仍計入 series_count
+
+    res = await client.get("/api/v1/themes")
+    assert res.status_code == 200
+    body = res.json()
+    matched = [t for t in body["items"] if t["name"] == "萌寵"]
+    assert len(matched) == 1
+    t = matched[0]
+    assert t["series_count"] == 2
+    assert t["product_count"] == 1   # 只算 on_sale，不算 draft
+
+
+@pytest.mark.asyncio
+async def test_get_theme_returns_nested_series(client, db):
+    """GET /themes/{id} 回主題詳情 + 巢狀 series（含 product_count）。"""
+    theme = await _make_theme(db, name="風景", description="美麗山景")
+    series_a = await _make_series(db, name="高山", theme_id=theme.id)
+    series_b = await _make_series(db, name="海岸", theme_id=theme.id)
+
+    job = await _make_job(db)
+    p1 = await _make_product(db, title="阿爾卑斯", series_id=series_a.id)
+    await _make_variant(db, p1.id, job.id)
+    await db.commit()
+    _ = series_b
+
+    res = await client.get(f"/api/v1/themes/{theme.id}")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["name"] == "風景"
+    assert body["description"] == "美麗山景"
+    series_names = {s["name"]: s["product_count"] for s in body["series"]}
+    assert series_names == {"高山": 1, "海岸": 0}
+
+
+@pytest.mark.asyncio
+async def test_get_theme_not_found(client, db):
+    import uuid as _uuid
+    res = await client.get(f"/api/v1/themes/{_uuid.uuid4()}")
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_series_default_returns_all(client, db):
+    theme = await _make_theme(db, name="主題A")
+    s1 = await _make_series(db, name="系列 A1", theme_id=theme.id)
+    s2 = await _make_series(db, name="系列 B1（無主題）", theme_id=None)
+    await db.commit()
+    _ = (s1, s2)
+
+    res = await client.get("/api/v1/series")
+    body = res.json()
+    names = [s["name"] for s in body["items"]]
+    assert "系列 A1" in names
+    assert "系列 B1（無主題）" in names
+
+    # 含 theme_name
+    a1 = next(s for s in body["items"] if s["name"] == "系列 A1")
+    assert a1["theme_name"] == "主題A"
+    b1 = next(s for s in body["items"] if s["name"] == "系列 B1（無主題）")
+    assert b1["theme_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_series_filter_by_theme(client, db):
+    theme_a = await _make_theme(db, name="A")
+    theme_b = await _make_theme(db, name="B")
+    s_a = await _make_series(db, name="A 的系列", theme_id=theme_a.id)
+    s_b = await _make_series(db, name="B 的系列", theme_id=theme_b.id)
+    await db.commit()
+    _ = (s_a, s_b)
+
+    res = await client.get(f"/api/v1/series?theme_id={theme_a.id}")
+    body = res.json()
+    names = [s["name"] for s in body["items"]]
+    assert names == ["A 的系列"]
+
+
+@pytest.mark.asyncio
+async def test_get_series_returns_products_ordered_by_series_order(client, db):
+    theme = await _make_theme(db, name="主題X")
+    series = await _make_series(db, name="系列X", theme_id=theme.id)
+
+    job = await _make_job(db)
+    # series_order: 1, NULL, 2 → 預期排序：1, 2, NULL（NULL 最後）
+    p1 = await _make_product(db, title="第一", series_id=series.id, series_order=1)
+    p2 = await _make_product(db, title="未排", series_id=series.id, series_order=None)
+    p3 = await _make_product(db, title="第二", series_id=series.id, series_order=2)
+    await _make_variant(db, p1.id, job.id, price=500)
+    await _make_variant(db, p2.id, job.id, price=600)
+    await _make_variant(db, p3.id, job.id, price=700)
+    await db.commit()
+
+    res = await client.get(f"/api/v1/series/{series.id}")
+    assert res.status_code == 200
+    body = res.json()
+    titles = [p["title"] for p in body["products"]]
+    assert titles == ["第一", "第二", "未排"]
+    assert body["theme_name"] == "主題X"
+
+
+@pytest.mark.asyncio
+async def test_get_series_excludes_draft(client, db):
+    series = await _make_series(db, name="只 on_sale 的系列")
+    job = await _make_job(db)
+    p1 = await _make_product(db, title="上架", series_id=series.id)
+    p2 = await _make_product(db, title="草稿", status=ProductStatusEnum.draft, series_id=series.id)
+    await _make_variant(db, p1.id, job.id)
+    await _make_variant(db, p2.id, job.id)
+    await db.commit()
+
+    res = await client.get(f"/api/v1/series/{series.id}")
+    body = res.json()
+    titles = [p["title"] for p in body["products"]]
+    assert titles == ["上架"]
+
+
+@pytest.mark.asyncio
+async def test_get_series_not_found(client, db):
+    import uuid as _uuid
+    res = await client.get(f"/api/v1/series/{_uuid.uuid4()}")
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_products_filter_by_theme(client, db):
+    """GET /products?theme_id=... 過濾該主題下所有系列的商品。"""
+    theme_a = await _make_theme(db, name="主題A")
+    theme_b = await _make_theme(db, name="主題B")
+    series_a = await _make_series(db, name="系列A", theme_id=theme_a.id)
+    series_b = await _make_series(db, name="系列B", theme_id=theme_b.id)
+
+    job = await _make_job(db)
+    p1 = await _make_product(db, title="A 的商品", series_id=series_a.id)
+    p2 = await _make_product(db, title="B 的商品", series_id=series_b.id)
+    await _make_variant(db, p1.id, job.id)
+    await _make_variant(db, p2.id, job.id)
+    await db.commit()
+
+    res = await client.get(f"/api/v1/products?theme_id={theme_a.id}")
+    body = res.json()
+    titles = [p["title"] for p in body["items"]]
+    assert titles == ["A 的商品"]
+
+
 # Suppress unused-import warning
 _ = (ProductImage, select)

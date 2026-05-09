@@ -12,6 +12,7 @@ from orders.schemas.request import (
     AddCartItemRequest,
     AdminNotesRequest,
     AdminUpdateOrderStatusRequest,
+    BatchCreateShipmentRequest,
     CancelOrderRequest,
     CheckoutPreviewRequest,
     CreateOrderRequest,
@@ -21,11 +22,13 @@ from orders.schemas.request import (
     RefundRequest,
     UpdateCartItemRequest,
     UpdateProductionProgressRequest,
+    UpdateShippingRequest,
 )
 from orders.schemas.response import (
     AdminNotesUpdateResponse,
     AdminOrderDetailResponse,
     AdminOrderListResponse,
+    BatchCreateShipmentResponse,
     CancelOrderResponse,
     CartItemMutationResponse,
     CartResponse,
@@ -177,6 +180,30 @@ async def confirm_received(
     )
 
 
+@router.patch(
+    "/orders/{order_id}/shipping",
+    response_model=OrderDetailResponse,
+)
+async def user_update_shipping(
+    order_id: UUID,
+    body: UpdateShippingRequest,
+    current_user=Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """客戶修改自己訂單的出貨資訊。
+
+    僅在 status=pending_payment 階段允許；後端嚴格鎖死。
+    """
+    await service.update_shipping(
+        db,
+        order_id=order_id,
+        user_id=current_user.id,
+        is_admin=False,
+        updates=body.model_dump(exclude_none=True),
+    )
+    return await service.get_order_detail(db, current_user.id, order_id)
+
+
 @router.post(
     "/orders/{order_id}/cancel", status_code=200, response_model=CancelOrderResponse
 )
@@ -258,21 +285,111 @@ async def admin_update_status(
     )
 
 
+@router.patch(
+    "/admin/orders/{order_id}/shipping",
+    response_model=AdminOrderDetailResponse,
+)
+async def admin_update_shipping(
+    order_id: UUID,
+    body: UpdateShippingRequest,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """admin 修改訂單出貨資訊（status: pending_payment / paid / processing 都可）。
+
+    shipping_locked=true 時拒絕。修改自動寫 audit 進 admin_notes。
+    """
+    await service.update_shipping(
+        db,
+        order_id=order_id,
+        user_id=None,
+        is_admin=True,
+        updates=body.model_dump(exclude_none=True),
+    )
+    return await service.admin_get_order(db, order_id)
+
+
+@router.post(
+    "/admin/orders/{order_id}/lock-shipping",
+    response_model=AdminOrderDetailResponse,
+)
+async def admin_lock_shipping(
+    order_id: UUID,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """admin 確認出貨資訊 → 鎖定。鎖定後才允許建立物流訂單。"""
+    await service.lock_shipping(db, order_id)
+    return await service.admin_get_order(db, order_id)
+
+
+def _resolve_status_callback_url(request: Request) -> str:
+    """ECpay 物流狀態通知 callback URL（Day 3 webhook 落點）.
+
+    對應 logistics router 的 /api/v1/logistics/status-callback。
+    Railway 反向代理 + 強制 https。
+    """
+    base = str(request.base_url).rstrip("/")
+    if base.startswith("http://") and "railway.app" in base:
+        base = "https://" + base[len("http://"):]
+    return f"{base}/api/v1/logistics/status-callback"
+
+
 @router.post(
     "/admin/orders/{order_id}/shipments", status_code=201, response_model=CreateShipmentResponse
 )
 async def create_shipment(
     order_id: UUID,
     body: CreateShipmentRequest,
+    request: Request,
     current_user=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    shipment = await service.create_shipment(db, order_id, body.shipment_type)
+    """單筆建單 — 真實呼叫 ECpay。"""
+    shipment = await service.create_shipment(
+        db, order_id, body.shipment_type,
+        server_reply_url=_resolve_status_callback_url(request),
+    )
     return {
         "shipment_id": shipment.id,
         "tracking_number": shipment.tracking_number,
         "ecpay_logistics_id": shipment.ecpay_logistics_id,
     }
+
+
+@router.post(
+    "/admin/shipments/batch-create",
+    response_model=BatchCreateShipmentResponse,
+)
+async def batch_create_shipments(
+    body: BatchCreateShipmentRequest,
+    request: Request,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """批次建單（一次最多 50 筆）— 失敗筆獨立、不影響成功筆。"""
+    return await service.batch_create_shipments(
+        db, body.order_ids, body.shipment_type,
+        server_reply_url=_resolve_status_callback_url(request),
+    )
+
+
+@router.post(
+    "/admin/orders/{order_id}/refresh-shipment-status",
+    response_model=AdminOrderDetailResponse,
+)
+async def admin_refresh_shipment_status(
+    order_id: UUID,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """admin 主動向 ECpay 拉所有 Shipment 的最新狀態（webhook 掉包補救）.
+
+    對該 Order 的每筆 Shipment 各打一次 ECpay /7418/，比對 LogisticsStatus，
+    若有更新就同步寫 DB。完成後回最新訂單詳情。
+    """
+    await service.refresh_shipment_status(db, order_id)
+    return await service.admin_get_order(db, order_id)
 
 
 @router.patch(

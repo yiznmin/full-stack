@@ -276,7 +276,26 @@ async def list_jobs(
     result = await db.execute(
         q.order_by(ProductionJob.created_at.desc()).offset(offset).limit(page_size)
     )
-    return list(result.scalars().all()), total
+    jobs = list(result.scalars().all())
+
+    # 補 image_preview_url：等待中 / 失敗 / processing 的 job 沒有 filled_template，
+    # 列表頁需要原圖 thumbnail 才能視覺辨識。Schema validator 會把 gs:// 簽成 https。
+    image_ids = {j.image_id for j in jobs if j.image_id is not None}
+    if image_ids:
+        img_rows = (
+            await db.execute(
+                select(Image.id, Image.original_url).where(Image.id.in_(image_ids))
+            )
+        ).all()
+        url_map: dict[UUID, str] = {row.id: row.original_url for row in img_rows}
+        for j in jobs:
+            # 動態屬性 — Pydantic from_attributes 會讀到（不寫 DB）
+            j.image_preview_url = url_map.get(j.image_id)  # type: ignore[attr-defined]
+    else:
+        for j in jobs:
+            j.image_preview_url = None  # type: ignore[attr-defined]
+
+    return jobs, total
 
 
 async def get_job(db: AsyncSession, job_id: UUID) -> ProductionJob:
@@ -285,6 +304,115 @@ async def get_job(db: AsyncSession, job_id: UUID) -> ProductionJob:
     if not job:
         raise NotFoundError("製作任務不存在")
     return job
+
+
+async def delete_job(db: AsyncSession, job_id: UUID, *, force: bool = False) -> None:
+    """硬刪除任務 row + palette_color_mappings 子資料 + Firebase 物件。
+
+    安全規則：
+    - status=processing → BadRequestError（worker 可能還在寫入，刪了會 race）
+      - force=True 時繞過此檢查，用於 worker 卡死永不結束的 zombie task
+    - 被 product_variants / print_batches / order_items 引用 → BadRequestError 拒絕
+    - palette_color_mappings 連帶刪（FK NOT NULL，不刪 cascade 會 IntegrityError）
+    - Firebase 物件（svg / filled / snapped_rgb / mask）best-effort 刪：
+      失敗只 log warning，不回滾 DB（DB 已 commit）
+    """
+    from palette.models import PaletteColorMapping  # noqa: PLC0415
+
+    job = await get_job(db, job_id)
+
+    if job.status == "processing" and not force:
+        raise BadRequestError(
+            "任務正在處理中，無法刪除（請等待完成或失敗後再試）。"
+            "若 worker 確認卡死，可改用 force=true 強制刪除（產生的 Firebase 物件可能成 orphan）。"
+        )
+
+    # 檢查是否被其他表引用 — 一律拒絕，防止商品/訂單/批次斷鏈
+    refs = await _check_job_references(db, job_id)
+    if refs:
+        raise BadRequestError(
+            f"任務被以下資料引用，無法刪除：{'、'.join(refs)}"
+        )
+
+    # DB 刪除：先刪子資料再刪 job row（palette_color_mappings FK NOT NULL，
+    # 不能 SET NULL；schema 沒 ondelete CASCADE 所以手動 DELETE）
+    await db.execute(
+        PaletteColorMapping.__table__.delete().where(
+            PaletteColorMapping.production_job_id == job_id
+        )
+    )
+    await db.delete(job)
+    await db.commit()
+
+    # Firebase 清理 — 掃整個 production_jobs/{job_id}/ prefix 把所有 blob 刪光
+    # （比僅刪 4 個 URL 欄位更徹底：worker 寫的中間檔 / mask 多版本 / 異常產生的孤兒
+    #  都會一併清掉）。失敗只 log，不回滾 DB（DB 已 commit）。
+    _delete_firebase_job_prefix(job_id)
+
+    # force=True 取消 processing 任務時，worker 可能還在跑（最壞情況 OOM 卡死中），
+    # 仍會繼續寫 Firebase。schedule 90 秒後再做一次 cleanup 把 race window 內
+    # worker 寫的新 blob 也清掉（雙重保險）。一般刪除不需此步。
+    if force:
+        try:
+            from production.tasks import cleanup_job_firebase  # noqa: PLC0415
+            cleanup_job_firebase.apply_async(args=[str(job_id)], countdown=90)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("schedule deferred firebase cleanup failed for %s: %s", job_id, e)
+
+
+async def _check_job_references(db: AsyncSession, job_id: UUID) -> list[str]:
+    """回傳所有引用此 job_id 的表標籤（中文），空 list 代表沒引用可安全刪。"""
+    from orders.models import OrderItem  # noqa: PLC0415
+    from print_batch.models import PrintBatchItem  # noqa: PLC0415
+    from product.models import ProductVariant  # noqa: PLC0415
+
+    refs = []
+    for model, label in (
+        (ProductVariant, "商品 variant"),
+        (PrintBatchItem, "列印批次"),
+        (OrderItem, "訂單項目"),
+    ):
+        cnt = (
+            await db.execute(
+                select(func.count()).select_from(model).where(
+                    model.production_job_id == job_id
+                )
+            )
+        ).scalar() or 0
+        if cnt > 0:
+            refs.append(f"{label}（{cnt} 筆）")
+    return refs
+
+
+def _delete_firebase_job_prefix(job_id: UUID) -> None:
+    """掃 Firebase production_jobs/{job_id}/ prefix 下所有 blob 刪光。
+
+    比逐一刪 4 個 URL 欄位徹底：worker 中間檔 / mask 多版本 / 異常孤兒都包含。
+    任一失敗只 log，不影響其他 blob 與 DB（DB 已 commit）。
+    """
+    try:
+        bucket = get_bucket()
+        prefix = f"production_jobs/{job_id}/"
+        blobs = list(bucket.list_blobs(prefix=prefix))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("delete-job firebase list failed for %s — %s", job_id, e)
+        return
+
+    if not blobs:
+        return
+
+    deleted, failed = 0, 0
+    for blob in blobs:
+        try:
+            blob.delete()
+            deleted += 1
+        except Exception as e:  # noqa: BLE001
+            logger.warning("delete-job firebase blob failed (orphan): %s — %s", blob.name, e)
+            failed += 1
+    logger.info(
+        "delete-job firebase cleanup for %s: prefix=%s deleted=%d failed=%d",
+        job_id, prefix, deleted, failed,
+    )
 
 
 _FILE_FIELD_MAP = {
@@ -306,7 +434,13 @@ def _make_signed_url(raw_url: str) -> str:
     parts = raw_url.split(f"/{bucket.name}/", 1)
     if len(parts) != 2:
         raise BadRequestError(f"無法解析 Firebase 路徑：{raw_url}")
-    blob_path = parts[1]
+    # raw_url 可能是：
+    #   gs://bucket/path/to/file.jpg                                  → blob_path 含路徑
+    #   https://storage.googleapis.com/bucket/path/to/file.jpg        → 同上
+    #   https://storage.googleapis.com/bucket/path/to/file.jpg?X-... → 已是 signed URL（過期會重簽）
+    # 後者要剝掉 query string 才是純 blob path，否則 blob.generate_signed_url 會把整個 ? 編成 %3F
+    # 變雙重 query 的壞 URL（已遇過 bug）。
+    blob_path = parts[1].split("?", 1)[0]
     now = datetime.now(UTC)
 
     cached = _SIGNED_URL_CACHE.get(blob_path)
@@ -326,9 +460,33 @@ def _make_signed_url(raw_url: str) -> str:
 async def get_job_signed_url(
     db: AsyncSession, job_id: UUID, file: str
 ) -> str | None:
+    """取 job 相關檔案的 signed URL。
+
+    - file=svg/snapped_rgb/filled → 從 production_jobs 同名欄位取（Phase A/B 結果）
+    - file=image / mask → 跨表取：image 從 images.original_url（job.image_id），
+      mask 從 production_jobs.mask_url。Phase C 遮罩編輯用。
+    - file=custom_photo → 從 custom_requests.photo_url（job.custom_request_id）
+    """
+    if file == "mask":
+        job = await get_job(db, job_id)
+        return _make_signed_url(job.mask_url) if job.mask_url else None
+    if file == "image":
+        job = await get_job(db, job_id)
+        if not job.image_id:
+            return None
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from production.models import Image  # noqa: PLC0415
+        result = await db.execute(select(Image).where(Image.id == job.image_id))
+        image = result.scalar_one_or_none()
+        if not image or not image.original_url:
+            return None
+        return _make_signed_url(image.original_url)
     field = _FILE_FIELD_MAP.get(file)
     if field is None:
-        raise BadRequestError(f"不支援的檔案：{file}，可選值：{', '.join(_FILE_FIELD_MAP)}")
+        raise BadRequestError(
+            f"不支援的檔案：{file}，可選值：{', '.join(list(_FILE_FIELD_MAP) + ['image', 'mask'])}"
+        )
     job = await get_job(db, job_id)
     raw = getattr(job, field, None)
     return _make_signed_url(raw) if raw else None
@@ -532,11 +690,26 @@ def _run_sam_predict(image_url: str, sam_points: list[dict]):
 
     image_url 可能是 gs:// 或 https://（既有圖片儲存格式）。
     走 in-memory bytes（避免 Windows 上 tempfile race + 累積 %TEMP% 殘檔）。
+
+    優化：sam_runtime 已 cache 此圖 embedding（is_image_cached）→ 跳過下載+解碼，
+    直接用 cached embedding 走 predict（同 admin 連點 SAM 第二次起每次省 1-2 秒）。
     """
+    from production.sam_runtime import (  # noqa: PLC0415
+        get_sam_predictor,
+        is_image_cached,
+        predict_mask,
+    )
+
+    predictor = get_sam_predictor()
+
+    if is_image_cached(image_url):
+        # cache hit：predictor 已 set_image 過此圖，predict 不需要原圖
+        return predict_mask(predictor, None, sam_points, image_key=image_url)
+
+    # cache miss：下載 + 解碼 + set_image
     import cv2  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
 
-    from production.sam_runtime import get_sam_predictor, predict_mask  # noqa: PLC0415
     from production.tasks import _parse_blob_path  # noqa: PLC0415
 
     bucket = get_bucket()
@@ -550,8 +723,7 @@ def _run_sam_predict(image_url: str, sam_points: list[dict]):
     if img_bgr is None:
         raise ValueError(f"無法解碼下載的圖片：{image_url}")
 
-    predictor = get_sam_predictor()
-    return predict_mask(predictor, img_bgr, sam_points)
+    return predict_mask(predictor, img_bgr, sam_points, image_key=image_url)
 
 
 # ── PDF export ─────────────────────────────────────────────────────────────────

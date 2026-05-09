@@ -249,6 +249,178 @@ async def test_admin_toggle_publish_case(client, db):
     assert res.json()["is_published"] is True
 
 
+# ── case_images（多圖 + 排序）────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_admin_create_case_with_multiple_images(client, db):
+    await _make_admin(db)
+    await _login_admin(client)
+    res = await client.post(
+        "/api/v1/admin/custom-cases",
+        json={
+            "title": "多圖案例",
+            "is_published": True,
+            "images": [
+                {"image_url": "https://example.com/1.png"},
+                {"image_url": "https://example.com/2.png"},
+                {"image_url": "https://example.com/3.png"},
+            ],
+        },
+    )
+    assert res.status_code == 201, res.text
+    body = res.json()
+    # image_url 應自動同步為第一張
+    assert body["image_url"] == "https://example.com/1.png"
+    # images 陣列照順序回，sort_order 0/1/2
+    assert len(body["images"]) == 3
+    assert [i["sort_order"] for i in body["images"]] == [0, 1, 2]
+    assert body["images"][0]["image_url"] == "https://example.com/1.png"
+    assert body["images"][2]["image_url"] == "https://example.com/3.png"
+
+
+@pytest.mark.asyncio
+async def test_admin_create_case_legacy_single_image_url(client, db):
+    """向後相容：只傳 image_url（沒給 images）→ 自動建一筆 sort_order=0 的 case_image。"""
+    await _make_admin(db)
+    await _login_admin(client)
+    res = await client.post(
+        "/api/v1/admin/custom-cases",
+        json={
+            "image_url": "https://example.com/legacy.png",
+            "title": "舊版單圖",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert len(body["images"]) == 1
+    assert body["images"][0]["image_url"] == "https://example.com/legacy.png"
+    assert body["images"][0]["sort_order"] == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_create_case_no_image_rejected(client, db):
+    """既無 image_url 也無 images → 409 拒絕。"""
+    await _make_admin(db)
+    await _login_admin(client)
+    res = await client.post(
+        "/api/v1/admin/custom-cases",
+        json={"title": "沒圖"},
+    )
+    assert res.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_admin_update_case_replace_images_reorders(client, db):
+    """傳 images 列表 → 整批替換並重新編 sort_order；首張 URL 同步到 image_url。"""
+    await _make_admin(db)
+    await _login_admin(client)
+    create_res = await client.post(
+        "/api/v1/admin/custom-cases",
+        json={
+            "title": "init",
+            "images": [
+                {"image_url": "https://e.com/A.png"},
+                {"image_url": "https://e.com/B.png"},
+            ],
+        },
+    )
+    cid = create_res.json()["id"]
+
+    # 重新排序：B 放第一、新增 C
+    update_res = await client.put(
+        f"/api/v1/admin/custom-cases/{cid}",
+        json={
+            "images": [
+                {"image_url": "https://e.com/B.png"},
+                {"image_url": "https://e.com/C.png"},
+                {"image_url": "https://e.com/A.png"},
+            ],
+        },
+    )
+    assert update_res.status_code == 200
+    body = update_res.json()
+    urls = [i["image_url"] for i in body["images"]]
+    assert urls == [
+        "https://e.com/B.png",
+        "https://e.com/C.png",
+        "https://e.com/A.png",
+    ]
+    # image_url 同步成新首張 = B
+    assert body["image_url"] == "https://e.com/B.png"
+
+
+@pytest.mark.asyncio
+async def test_admin_update_case_empty_images_rejected(client, db):
+    await _make_admin(db)
+    await _login_admin(client)
+    create_res = await client.post(
+        "/api/v1/admin/custom-cases",
+        json={
+            "title": "init",
+            "images": [{"image_url": "https://e.com/X.png"}],
+        },
+    )
+    cid = create_res.json()["id"]
+    res = await client.put(
+        f"/api/v1/admin/custom-cases/{cid}",
+        json={"images": []},
+    )
+    assert res.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_admin_update_case_omit_images_keeps_existing(client, db):
+    """不傳 images → 只改其他欄位，case_images 不動。"""
+    await _make_admin(db)
+    await _login_admin(client)
+    create_res = await client.post(
+        "/api/v1/admin/custom-cases",
+        json={
+            "title": "init",
+            "images": [
+                {"image_url": "https://e.com/x.png"},
+                {"image_url": "https://e.com/y.png"},
+            ],
+        },
+    )
+    cid = create_res.json()["id"]
+
+    update_res = await client.put(
+        f"/api/v1/admin/custom-cases/{cid}",
+        json={"title": "renamed"},
+    )
+    assert update_res.status_code == 200
+    body = update_res.json()
+    assert body["title"] == "renamed"
+    assert len(body["images"]) == 2
+    assert body["images"][0]["image_url"] == "https://e.com/x.png"
+
+
+@pytest.mark.asyncio
+async def test_public_get_case_returns_images(client, db):
+    await _make_admin(db)
+    await _login_admin(client)
+    create_res = await client.post(
+        "/api/v1/admin/custom-cases",
+        json={
+            "title": "公開",
+            "is_published": True,
+            "images": [
+                {"image_url": "https://e.com/1.png"},
+                {"image_url": "https://e.com/2.png"},
+            ],
+        },
+    )
+    cid = create_res.json()["id"]
+    client.cookies.clear()  # 用未登入打公開
+    res = await client.get(f"/api/v1/custom-cases/{cid}")
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["images"]) == 2
+    assert body["images"][0]["sort_order"] == 0
+
+
 # ── Case Categories ──────────────────────────────────────────────────────────
 
 

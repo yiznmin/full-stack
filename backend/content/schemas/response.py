@@ -30,9 +30,15 @@ class PublicSettingsResponse(BaseModel):
     items: dict[str, str]
 
 
-class CustomCaseResponse(BaseModel):
+class CaseImageItem(BaseModel):
     id: UUID
     image_url: str
+    sort_order: int
+
+
+class CustomCaseResponse(BaseModel):
+    id: UUID
+    image_url: str  # 主圖（= images sort_order=0 的快取，前端列表縮圖直接讀此欄位）
     title: str
     description: str | None
     category_id: UUID | None
@@ -41,6 +47,7 @@ class CustomCaseResponse(BaseModel):
     difficulty: str | None
     is_published: bool
     created_at: datetime
+    images: list[CaseImageItem] = []
 
 
 class CustomCaseListResponse(BaseModel):

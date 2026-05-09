@@ -45,6 +45,9 @@ class JobSummaryResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     id: UUID
+    image_id: UUID | None
+    custom_request_id: UUID | None
+    batch_id: UUID | None
     status: str
     approved: bool
     detail: str
@@ -52,8 +55,24 @@ class JobSummaryResponse(BaseModel):
     mode: str
     canvas_w_cm: float
     canvas_h_cm: float
-    batch_id: UUID | None
+    filled_template_url: str | None
+    # 列表頁用：filled_template_url 不存在時 fallback 顯原圖縮圖
+    # （由 service.list_jobs 動態 attach 到 ORM 物件）
+    image_preview_url: str | None = None
+    num_colors_used: int | None
+    notes: str | None
     created_at: datetime
+    approved_at: datetime | None
+
+    @field_validator("filled_template_url", mode="before")
+    @classmethod
+    def _convert_filled(cls, v: Any) -> Any:
+        return _resolve_filled_url(v)
+
+    @field_validator("image_preview_url", mode="before")
+    @classmethod
+    def _convert_image_preview(cls, v: Any) -> Any:
+        return _resolve_filled_url(v)
 
 
 class JobListResponse(BaseModel):
@@ -106,6 +125,11 @@ class JobDetailResponse(BaseModel):
     def _convert_filled(cls, v: Any) -> Any:
         return _resolve_filled_url(v)
 
+    @field_validator("mask_url", mode="before")
+    @classmethod
+    def _convert_mask(cls, v: Any) -> Any:
+        return _resolve_filled_url(v)
+
 
 class CreateJobsResponse(BaseModel):
     batch_id: UUID | None
@@ -133,9 +157,16 @@ class SuggestCanvasSizesResponse(BaseModel):
 
 
 class SamMaskResponse(BaseModel):
+    # 注意：DB 內 mask_url 存的是 gs://...，回 client 前轉 https signed URL
+    # （HTML <img> 不認 gs://）
     mask_url: str | None
     # 遮罩面積佔圖片面積比例 0~1；純 sam_points 等 Celery 推論時為 null
     mask_coverage: float | None
+
+    @field_validator("mask_url", mode="before")
+    @classmethod
+    def _convert_mask(cls, v: Any) -> Any:
+        return _resolve_filled_url(v)
 
 
 class BatchStartSkippedItem(BaseModel):

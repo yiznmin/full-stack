@@ -15,6 +15,7 @@ import asyncio
 import subprocess
 import sys
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # 註冊所有 ORM models 的 metadata
@@ -41,6 +42,49 @@ async def init_schema() -> None:
         async with engine.begin() as conn:
             print("[init_db] running Base.metadata.create_all (idempotent) ...", flush=True)
             await conn.run_sync(Base.metadata.create_all)
+
+            # PostgreSQL sequences 不在 ORM Base.metadata 裡，create_all 不會建。
+            # 對應 alembic migration c3d4e5f6a7b8_create_order_tables；alembic stamp head
+            # 不執行 migration body 所以這裡要主動補。idempotent.
+            print("[init_db] ensuring sequences (order_number_seq) ...", flush=True)
+            await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS order_number_seq START 1"))
+
+            # 新增 column：create_all 不會在已存在的 table 加新欄位，
+            # 需要顯式 ALTER TABLE。 IF NOT EXISTS 確保 idempotent。
+            print("[init_db] ensuring incremental columns ...", flush=True)
+            await conn.execute(text(
+                "ALTER TABLE orders "
+                "ADD COLUMN IF NOT EXISTS shipping_locked BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE shipments "
+                "ADD COLUMN IF NOT EXISTS cvs_payment_no VARCHAR"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE shipments "
+                "ADD COLUMN IF NOT EXISTS cvs_validation_no VARCHAR"
+            ))
+            # Day 3 webhook 追蹤欄位
+            await conn.execute(text(
+                "ALTER TABLE shipments "
+                "ADD COLUMN IF NOT EXISTS last_rtn_code INTEGER"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE shipments "
+                "ADD COLUMN IF NOT EXISTS last_rtn_msg VARCHAR"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE shipments "
+                "ADD COLUMN IF NOT EXISTS last_status_at TIMESTAMP WITH TIME ZONE"
+            ))
+
+            # Backfill：已有 shipment 的訂單視為「已確認出貨資訊」（之前無此欄位的歷史訂單）
+            print("[init_db] backfilling shipping_locked for shipped orders ...", flush=True)
+            await conn.execute(text(
+                "UPDATE orders SET shipping_locked = TRUE "
+                "WHERE shipping_locked = FALSE "
+                "AND id IN (SELECT DISTINCT order_id FROM shipments)"
+            ))
         print("[init_db] schema created/verified", flush=True)
     finally:
         await engine.dispose()

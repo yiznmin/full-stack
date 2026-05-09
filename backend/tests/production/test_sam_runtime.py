@@ -174,3 +174,108 @@ def test_predict_mask_empty_points_raises():
     fake_predictor = MagicMock()
     with pytest.raises(ValueError, match="sam_points"):
         sam_runtime.predict_mask(fake_predictor, image_bgr, [])
+
+
+def test_predict_mask_skips_set_image_when_key_matches():
+    """同 image_key 連續呼叫 → set_image 只執行一次（cache 命中），predict 每次跑。"""
+    from production import sam_runtime
+
+    image_bgr = np.zeros((20, 20, 3), dtype=np.uint8)
+    fake_masks = np.array([np.ones((20, 20), dtype=bool)])
+    fake_scores = np.array([0.9])
+    fake_predictor = MagicMock()
+    fake_predictor.predict.return_value = (fake_masks, fake_scores, None)
+
+    points = [{"x": 1.0, "y": 1.0, "label": 1}]
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points, image_key="img-A")
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points, image_key="img-A")
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points, image_key="img-A")
+
+    # set_image 只跑一次（後兩次命中 cache）
+    assert fake_predictor.set_image.call_count == 1
+    # predict 三次都要跑（每次點選都要重算 mask）
+    assert fake_predictor.predict.call_count == 3
+
+
+def test_predict_mask_resets_cache_when_key_changes():
+    """切到不同 image_key → 必須重做 set_image（不同圖 embedding 不同）。"""
+    from production import sam_runtime
+
+    image_bgr = np.zeros((20, 20, 3), dtype=np.uint8)
+    fake_masks = np.array([np.ones((20, 20), dtype=bool)])
+    fake_scores = np.array([0.9])
+    fake_predictor = MagicMock()
+    fake_predictor.predict.return_value = (fake_masks, fake_scores, None)
+
+    points = [{"x": 1.0, "y": 1.0, "label": 1}]
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points, image_key="img-A")
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points, image_key="img-B")
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points, image_key="img-A")
+
+    # 三次 image_key 變化（A → B → A）每次都要重算 embedding
+    assert fake_predictor.set_image.call_count == 3
+
+
+def test_predict_mask_cache_hit_accepts_none_image():
+    """同 image_key 已 cache → image_bgr=None 時也能正常 predict（不需要原圖）。"""
+    from production import sam_runtime
+
+    image_bgr = np.zeros((20, 20, 3), dtype=np.uint8)
+    fake_masks = np.array([np.ones((20, 20), dtype=bool)])
+    fake_scores = np.array([0.9])
+    fake_predictor = MagicMock()
+    fake_predictor.predict.return_value = (fake_masks, fake_scores, None)
+
+    points = [{"x": 1.0, "y": 1.0, "label": 1}]
+    # 第一次：提供 image_bgr，set_image
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points, image_key="img-X")
+    # 第二次：image_bgr=None — cache 命中所以不需要
+    sam_runtime.predict_mask(fake_predictor, None, points, image_key="img-X")
+
+    assert fake_predictor.set_image.call_count == 1
+    assert fake_predictor.predict.call_count == 2
+
+
+def test_predict_mask_cache_miss_with_none_image_raises():
+    """cache miss 但 image_bgr=None → ValueError（無法 set_image）。"""
+    from production import sam_runtime
+
+    fake_predictor = MagicMock()
+    points = [{"x": 1.0, "y": 1.0, "label": 1}]
+    with pytest.raises(ValueError, match="image_bgr"):
+        sam_runtime.predict_mask(fake_predictor, None, points, image_key="img-Y")
+
+
+def test_is_image_cached_reflects_state():
+    """is_image_cached 對應 set_image 後的狀態。"""
+    from production import sam_runtime
+
+    assert sam_runtime.is_image_cached("img-A") is False  # 初始空
+
+    image_bgr = np.zeros((10, 10, 3), dtype=np.uint8)
+    fake_masks = np.array([np.ones((10, 10), dtype=bool)])
+    fake_predictor = MagicMock()
+    fake_predictor.predict.return_value = (fake_masks, np.array([0.9]), None)
+    sam_runtime.predict_mask(fake_predictor, image_bgr, [{"x": 1, "y": 1, "label": 1}], image_key="img-A")
+
+    assert sam_runtime.is_image_cached("img-A") is True
+    assert sam_runtime.is_image_cached("img-B") is False
+    assert sam_runtime.is_image_cached(None) is False  # type: ignore[arg-type]
+
+
+def test_predict_mask_no_key_always_set_image():
+    """image_key=None（預設）→ 每次都重做 set_image（保守 fallback）。"""
+    from production import sam_runtime
+
+    image_bgr = np.zeros((20, 20, 3), dtype=np.uint8)
+    fake_masks = np.array([np.ones((20, 20), dtype=bool)])
+    fake_scores = np.array([0.9])
+    fake_predictor = MagicMock()
+    fake_predictor.predict.return_value = (fake_masks, fake_scores, None)
+
+    points = [{"x": 1.0, "y": 1.0, "label": 1}]
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points)
+    sam_runtime.predict_mask(fake_predictor, image_bgr, points)
+
+    # 沒 key → 每次都 set_image
+    assert fake_predictor.set_image.call_count == 2

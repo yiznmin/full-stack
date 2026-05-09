@@ -135,10 +135,16 @@ async def get_cart(db: AsyncSession, user_id: UUID) -> dict:
         fulfilled_units = fulfillable
         preorder_units = qty - fulfillable
         variant_spec = _job_spec(job) if job else {}
+        # 縮圖：用 product.cover_image_url（admin 已設為公開讀取的 product_images/ 路徑）
+        # 不用 job.filled_template_url 因為那是 production_jobs/ 私有路徑、cart 顯示會 403
         items.append({
             "id": cart_item.id,
             "variant_id": variant.id,
+            "product_id": product.id,
             "product_title": product.title,
+            "product_image_url": product.cover_image_url,
+            "variant_image_url": job.filled_template_url if job else None,
+            "thumb_url": product.cover_image_url,
             "variant_spec": variant_spec,
             "unit_price": float(variant.price),
             "quantity": qty,
@@ -700,6 +706,7 @@ async def _build_order_detail(db: AsyncSession, order: Order, is_admin: bool = F
         "shipping_type": order.shipping_type,
         "shipping_preference": order.shipping_preference,
         "shipping_snapshot": order.shipping_snapshot,
+        "shipping_locked": bool(order.shipping_locked),
         "payment_deadline": order.payment_deadline,
         "paid_at": order.paid_at,
         "completed_at": order.completed_at,
@@ -716,6 +723,12 @@ async def _build_order_detail(db: AsyncSession, order: Order, is_admin: bool = F
                 "shipment_type": s.shipment_type,
                 "status": s.status,
                 "tracking_number": s.tracking_number,
+                "ecpay_logistics_id": s.ecpay_logistics_id,
+                "cvs_payment_no": s.cvs_payment_no,
+                "cvs_validation_no": s.cvs_validation_no,
+                "last_rtn_code": s.last_rtn_code,
+                "last_rtn_msg": s.last_rtn_msg,
+                "last_status_at": s.last_status_at,
                 "shipped_at": s.shipped_at,
                 "delivered_at": s.delivered_at,
             }
@@ -740,6 +753,11 @@ async def _build_order_detail(db: AsyncSession, order: Order, is_admin: bool = F
     if not is_admin:
         base["can_cancel"] = order.status == OrderStatusEnum.pending_payment
         base["can_confirm_received"] = order.status == OrderStatusEnum.shipped
+        # 用戶端：只在 pending_payment 階段且未鎖定才能改地址
+        base["can_modify_shipping"] = (
+            order.status == OrderStatusEnum.pending_payment
+            and not order.shipping_locked
+        )
     else:
         user_result = await db.execute(select(User).where(User.id == order.user_id))
         user = user_result.scalar_one_or_none()
@@ -825,6 +843,141 @@ async def confirm_received(db: AsyncSession, user_id: UUID, order_id: UUID) -> O
         reference_type="order",
         reference_id=order_id,
     )
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
+def _merge_shipping_snapshot(existing: dict, updates: dict) -> dict:
+    """Merge updates into existing shipping_snapshot. None values 忽略，'' 視為清空。"""
+    result = dict(existing) if existing else {}
+    for key, value in updates.items():
+        if value is None:
+            continue
+        result[key] = value
+    return result
+
+
+def _diff_shipping_for_audit(old: dict, new: dict) -> str:
+    """產生人類可讀的 diff 字串（給 admin_notes audit trail）."""
+    fields_zh = {
+        "recipient_name": "收件人",
+        "phone": "電話",
+        "notify_email": "Email",
+        "city": "縣市",
+        "district": "行政區",
+        "address_detail": "地址",
+        "store_id": "門市代碼",
+        "store_name": "門市名稱",
+    }
+    parts = []
+    for key, label in fields_zh.items():
+        old_val = old.get(key) or ""
+        new_val = new.get(key) or ""
+        if old_val != new_val:
+            parts.append(f"{label}「{old_val}」→「{new_val}」")
+    return "; ".join(parts) if parts else "(無實質變更)"
+
+
+async def update_shipping(
+    db: AsyncSession,
+    *,
+    order_id: UUID,
+    user_id: UUID | None,
+    is_admin: bool,
+    updates: dict,
+) -> Order:
+    """修改訂單出貨資訊。
+
+    user (is_admin=False, 帶 user_id)：
+      - 訂單必須屬於該 user
+      - 訂單狀態必須 == pending_payment
+      - shipping_locked 必須 == False
+
+    admin (is_admin=True, user_id 忽略)：
+      - 訂單狀態必須在 pending_payment / paid / processing
+      - shipping_locked 必須 == False（已 lock 不能改）
+      - 改完寫 audit trail 到 admin_notes
+    """
+    query = select(Order).where(Order.id == order_id).with_for_update()
+    if not is_admin:
+        query = query.where(Order.user_id == user_id)
+    result = await db.execute(query)
+    order = result.scalar_one_or_none()
+    if order is None:
+        raise NotFoundError("訂單不存在")
+
+    if order.shipping_locked:
+        raise ConflictError("出貨資訊已鎖定，無法修改")
+
+    if is_admin:
+        if order.status not in (
+            OrderStatusEnum.pending_payment,
+            OrderStatusEnum.paid,
+            OrderStatusEnum.processing,
+        ):
+            raise BadRequestError(f"訂單狀態 {order.status} 不允許修改出貨資訊")
+    else:
+        if order.status != OrderStatusEnum.pending_payment:
+            raise BadRequestError(
+                "付款已被管理員確認，無法自行修改地址。請來信 admin 修改。"
+            )
+
+    # 把 updates dict 對映到 shipping_snapshot 的 key（注意 email → notify_email）
+    snapshot_updates: dict = {}
+    for k, v in updates.items():
+        if v is None:
+            continue
+        if k == "email":
+            snapshot_updates["notify_email"] = v
+        else:
+            snapshot_updates[k] = v
+
+    old_snapshot = dict(order.shipping_snapshot or {})
+    new_snapshot = _merge_shipping_snapshot(old_snapshot, snapshot_updates)
+    order.shipping_snapshot = new_snapshot
+
+    if is_admin:
+        # audit trail
+        diff_text = _diff_shipping_for_audit(old_snapshot, new_snapshot)
+        stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+        audit_line = f"[{stamp}] [admin 改地址] {diff_text}"
+        order.admin_notes = (audit_line + "\n" + (order.admin_notes or "")).strip()
+    else:
+        # 客戶自己改 → 通知 admin
+        await create_notification(
+            db,
+            type="customer_modified_shipping",
+            message=f"客戶修改訂單 {order.order_number} 的出貨資訊",
+            reference_type="order",
+            reference_id=order_id,
+            requires_action=True,
+        )
+
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
+async def lock_shipping(db: AsyncSession, order_id: UUID) -> Order:
+    """admin 確認出貨資訊 → 鎖定。鎖定後 create_shipment 才會放行。"""
+    result = await db.execute(
+        select(Order).where(Order.id == order_id).with_for_update()
+    )
+    order = result.scalar_one_or_none()
+    if order is None:
+        raise NotFoundError("訂單不存在")
+    if order.shipping_locked:
+        return order  # 已鎖，直接回（idempotent）
+    if order.status not in (
+        OrderStatusEnum.paid,
+        OrderStatusEnum.processing,
+    ):
+        raise BadRequestError("只有已付款或備貨中的訂單才能鎖定出貨資訊")
+    order.shipping_locked = True
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+    audit = f"[{stamp}] 出貨資訊已鎖定"
+    order.admin_notes = (audit + "\n" + (order.admin_notes or "")).strip()
     await db.commit()
     await db.refresh(order)
     return order
@@ -1057,7 +1210,16 @@ async def create_shipment(
     db: AsyncSession,
     order_id: UUID,
     shipment_type: str,
+    *,
+    server_reply_url: str = "",
 ) -> Shipment:
+    """建立物流訂單 — Day 2 真實 ECpay 整合（不再是 stub）。
+
+    Args:
+        server_reply_url: ECpay 推狀態通知 URL（Day 3 webhook）。空字串時用 settings 預設。
+    """
+    from logistics import service as logistics_service
+
     result = await db.execute(
         select(Order).where(Order.id == order_id).with_for_update()
     )
@@ -1069,16 +1231,58 @@ async def create_shipment(
     ):
         raise BadRequestError("訂單狀態不允許出貨")
 
-    # ECpay stub
-    ecpay_merchant_id = os.environ.get("ECPAY_MERCHANT_ID", "")
-    if ecpay_merchant_id:
-        # TODO: 呼叫真實 ECpay 物流 API
-        tracking_number = f"REAL-{uuid.uuid4().hex[:12].upper()}"
-        ecpay_logistics_id = f"EC-{uuid.uuid4().hex[:8].upper()}"
-    else:
-        logger.warning("ECPAY_MERCHANT_ID not set — using stub tracking number")
-        tracking_number = f"MOCK-{uuid.uuid4().hex[:12].upper()}"
-        ecpay_logistics_id = f"STUB-{uuid.uuid4().hex[:8].upper()}"
+    # 出貨資訊鎖定檢查：必須先「確認出貨資訊」
+    if not order.shipping_locked:
+        raise BadRequestError("請先按「確認出貨資訊」鎖定後才能建立物流訂單")
+
+    # 重複建單防呆：本訂單同 shipment_type 已有 Shipment → 拒絕
+    existing_check = await db.execute(
+        select(Shipment).where(
+            Shipment.order_id == order_id,
+            Shipment.shipment_type == shipment_type,
+        )
+    )
+    if existing_check.scalar_one_or_none():
+        raise ConflictError(
+            f"本訂單{shipment_type}類型已建立物流單，不可重複建單"
+        )
+
+    # 取訂單商品名（concat 用）
+    items_result = await db.execute(
+        select(OrderItem).where(OrderItem.order_id == order_id)
+    )
+    order_items = items_result.scalars().all()
+    goods_titles = [oi.product_title_snapshot for oi in order_items]
+
+    # 呼叫 ECpay 真實建單
+    if not server_reply_url:
+        # 預設 fallback；正式由 router 注入
+        server_reply_url = (
+            "https://paint-web-production.up.railway.app"
+            "/api/v1/logistics/status-callback"
+        )
+
+    try:
+        ecpay_result = await logistics_service.execute_create_shipment(
+            db,
+            order_number=order.order_number,
+            order_created_at=order.created_at,
+            total_amount=float(order.total),
+            goods_titles=goods_titles,
+            shipping_snapshot=order.shipping_snapshot,
+            server_reply_url=server_reply_url,
+        )
+    except (ValueError, ConnectionError) as e:
+        # 業務錯誤（金額超限 / 寄件人未設）或 ECpay 連線失敗
+        raise BadRequestError(str(e)) from e
+
+    if not ecpay_result["ok"]:
+        raise BadRequestError(
+            f"ECpay 建單失敗 (RtnCode={ecpay_result['rtn_code']})：{ecpay_result['rtn_msg']}"
+        )
+
+    tracking_number = ecpay_result["tracking_number"]
+    ecpay_logistics_id = ecpay_result["ecpay_logistics_id"]
 
     now = datetime.now(UTC)
     shipment = Shipment(
@@ -1087,10 +1291,16 @@ async def create_shipment(
         status=ShipmentStatusEnum.shipped,
         tracking_number=tracking_number,
         ecpay_logistics_id=ecpay_logistics_id,
+        cvs_payment_no=ecpay_result.get("cvs_payment_no"),
+        cvs_validation_no=ecpay_result.get("cvs_validation_no"),
         shipped_at=now,
     )
     db.add(shipment)
     await db.flush()
+
+    # 出貨即確認 — 確保 shipping_locked=True（雖然前面已檢查過，這裡 idempotent 雙保險）
+    if not order.shipping_locked:
+        order.shipping_locked = True
 
     # Update production progress → shipped, scoped to items matching shipment_type
     if shipment_type == "fulfilled":
@@ -1130,6 +1340,140 @@ async def create_shipment(
     return shipment
 
 
+async def refresh_shipment_status(db: AsyncSession, order_id: UUID) -> None:
+    """對該 Order 的每筆 Shipment 主動查 ECpay /7418/，比對狀態並同步。
+
+    用於 webhook 掉包補救（admin 點「重新查詢狀態」按鈕）。
+    """
+    from logistics import service as logistics_service
+
+    result = await db.execute(
+        select(Shipment).where(Shipment.order_id == order_id)
+    )
+    shipments = list(result.scalars().all())
+    if not shipments:
+        raise NotFoundError("該訂單沒有物流訂單可查詢")
+
+    for ship in shipments:
+        if not ship.ecpay_logistics_id:
+            logger.info(f"[refresh-shipment] skip {ship.id} — no ecpay_logistics_id")
+            continue
+        try:
+            raw = await logistics_service.query_logistics_trade(
+                all_pay_logistics_id=ship.ecpay_logistics_id,
+            )
+        except Exception as e:
+            logger.warning(f"[refresh-shipment] query failed for {ship.id}: {e}")
+            continue
+
+        # ECpay /7418/ 回的格式不同於 webhook，狀態欄位是 LogisticsStatus
+        try:
+            new_rtn_code = int(raw.get("LogisticsStatus") or raw.get("RtnCode") or "0")
+        except ValueError:
+            new_rtn_code = 0
+        new_rtn_msg = raw.get("RtnMsg") or raw.get("LogisticsStatus") or ""
+        new_status_at = logistics_service.parse_ecpay_datetime(
+            raw.get("UpdateStatusDate") or ""
+        )
+
+        # 比對：last_status_at >= new_status_at 跳過（已是最新）
+        if (
+            new_status_at
+            and ship.last_status_at
+            and ship.last_status_at >= new_status_at
+        ):
+            continue
+
+        ship.last_rtn_code = new_rtn_code
+        ship.last_rtn_msg = new_rtn_msg
+        if new_status_at:
+            ship.last_status_at = new_status_at
+
+        if logistics_service.is_delivered_status(new_rtn_code, new_rtn_msg):
+            if ship.status != ShipmentStatusEnum.delivered:
+                ship.status = ShipmentStatusEnum.delivered
+                ship.delivered_at = new_status_at or datetime.now(UTC)
+
+    # 完成後檢查 Order.status 是否要推進到 completed
+    order_result = await db.execute(
+        select(Order).where(Order.id == order_id).with_for_update()
+    )
+    order = order_result.scalar_one_or_none()
+    if order is not None:
+        all_ships_result = await db.execute(
+            select(Shipment).where(Shipment.order_id == order_id)
+        )
+        all_ships = list(all_ships_result.scalars().all())
+        if all_ships and all(
+            s.status == ShipmentStatusEnum.delivered for s in all_ships
+        ):
+            if order.status != OrderStatusEnum.completed:
+                order.status = OrderStatusEnum.completed
+                order.completed_at = datetime.now(UTC)
+
+    await db.commit()
+
+
+async def batch_create_shipments(
+    db: AsyncSession,
+    order_ids: list[UUID],
+    shipment_type: str,
+    *,
+    server_reply_url: str = "",
+) -> dict:
+    """批次建單 — 一次最多 50 筆。
+
+    每筆獨立 try/except，失敗不影響其他成功；不用 asyncio.gather 因為會吃 ECpay rate limit。
+    依序呼叫，每筆一個 transaction（create_shipment 內部會 commit）。
+
+    Returns:
+        {total, success, failed, results: [{order_id, ok, tracking_number?, error?}]}
+    """
+    results: list[dict] = []
+    success_count = 0
+    failed_count = 0
+
+    for order_id in order_ids:
+        try:
+            shipment = await create_shipment(
+                db, order_id, shipment_type, server_reply_url=server_reply_url
+            )
+            results.append({
+                "order_id": order_id,
+                "ok": True,
+                "tracking_number": shipment.tracking_number,
+                "ecpay_logistics_id": shipment.ecpay_logistics_id,
+                "error": None,
+            })
+            success_count += 1
+        except (NotFoundError, BadRequestError, ConflictError) as e:
+            results.append({
+                "order_id": order_id,
+                "ok": False,
+                "tracking_number": None,
+                "ecpay_logistics_id": None,
+                "error": str(e),
+            })
+            failed_count += 1
+        except Exception as e:  # 不預期錯誤也不能整批 fail
+            logger.exception(f"[batch-shipment] order={order_id} unexpected error")
+            results.append({
+                "order_id": order_id,
+                "ok": False,
+                "tracking_number": None,
+                "ecpay_logistics_id": None,
+                "error": f"未預期錯誤：{e!s}",
+            })
+            failed_count += 1
+
+    return {
+        "total": len(order_ids),
+        "success": success_count,
+        "failed": failed_count,
+        "results": results,
+    }
+
+
 async def update_production_progress(
     db: AsyncSession,
     order_id: UUID,
@@ -1162,12 +1506,21 @@ async def update_production_progress(
     if notes is not None:
         progress.notes = notes
 
-    # Email for manufacturing and ready_to_ship
     order_result = await db.execute(select(Order).where(Order.id == order_id))
     order = order_result.scalar_one()
     user_result = await db.execute(select(User).where(User.id == order.user_id))
     user = user_result.scalar_one()
 
+    # 自動推進 order.status: paid → processing
+    # admin 點任何手動生產階段（manufacturing/packaging/ready_to_ship）都代表「已開工」，
+    # Order.status 應從 'paid' 升到 'processing'，user 端才會看到「製作中」狀態。
+    if (
+        order.status == OrderStatusEnum.paid
+        and new_status in ("manufacturing", "packaging", "ready_to_ship")
+    ):
+        order.status = OrderStatusEnum.processing
+
+    # Email for manufacturing and ready_to_ship
     if new_status in ("manufacturing", "ready_to_ship"):
         label = "開始製作" if new_status == "manufacturing" else "準備出貨"
         await _send_email(
