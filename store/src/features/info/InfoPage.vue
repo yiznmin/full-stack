@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import { useTitle } from '@vueuse/core'
 import { Loader2, AlertCircle } from 'lucide-vue-next'
 import SectionMasthead from '@/shared/components/SectionMasthead.vue'
 import { fetchPage, type InfoSlug } from './api'
@@ -21,6 +22,32 @@ const pageQuery = useQuery({
 })
 
 const title = computed(() => pageQuery.data.value?.title ?? props.fallbackTitle)
+
+// SEO — 設定 document.title；meta description 取 markdown 第一段純文字（< 160 字）
+useTitle(computed(() => `${title.value}｜易木 YIIMUI`))
+
+watch(
+  () => pageQuery.data.value?.content,
+  (md) => {
+    if (typeof document === 'undefined') return
+    const desc = md
+      ? md
+          .replace(/^#+\s.*$/gm, '')
+          .replace(/[*`>\-|]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 155)
+      : `易木 YIIMUI ${title.value}說明頁面。`
+    let tag = document.querySelector<HTMLMetaElement>('meta[name="description"]')
+    if (!tag) {
+      tag = document.createElement('meta')
+      tag.name = 'description'
+      document.head.appendChild(tag)
+    }
+    tag.content = desc
+  },
+  { immediate: true },
+)
 const html = computed(() =>
   pageQuery.data.value ? renderMarkdown(pageQuery.data.value.content) : '',
 )
@@ -112,7 +139,7 @@ const updatedAt = computed(() => {
 
 .prose :deep(h2) {
   font-family: var(--font-cn-serif);
-  font-weight: 400;
+  font-weight: 300;
   font-size: 19px;
   letter-spacing: 0.06em;
   color: var(--color-ink-strong);
@@ -122,7 +149,7 @@ const updatedAt = computed(() => {
 
 .prose :deep(h3) {
   font-family: var(--font-cn-serif);
-  font-weight: 500;
+  font-weight: 300;
   font-size: 15px;
   letter-spacing: 0.04em;
   color: var(--color-ink-strong);
@@ -183,7 +210,7 @@ const updatedAt = computed(() => {
 .prose :deep(blockquote) {
   margin: 24px 0;
   padding: 16px 20px;
-  background: var(--color-paper-subtle, var(--color-paper-surface));
+  background: var(--color-paper-deep);
   border-left: 2px solid var(--color-accent);
   border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
 }
@@ -197,7 +224,7 @@ const updatedAt = computed(() => {
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 2px 6px;
-  background: var(--color-paper-subtle, var(--color-paper-surface));
+  background: var(--color-paper-deep);
   border-radius: var(--radius-xs);
   color: var(--color-ink-strong);
 }
@@ -215,7 +242,7 @@ const updatedAt = computed(() => {
   font-size: 13px;
 }
 .prose :deep(.md-table th) {
-  background: var(--color-paper-subtle, var(--color-paper-surface));
+  background: var(--color-paper-deep);
   text-align: left;
   padding: 12px 14px;
   font-family: var(--font-mono);
