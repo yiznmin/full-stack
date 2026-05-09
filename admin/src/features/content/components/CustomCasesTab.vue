@@ -45,7 +45,10 @@ const editing = ref<CustomCase | null>(null)
 const apiError = ref<string | null>(null)
 
 // form fields
-const fImages = ref<{ image_url: string }[]>([])  // 多圖按順序
+// preview_url：本地 blob URL（瞬間可見，避開 Firebase eventual consistency）
+// image_url：Firebase 永久 URL（送 backend 用）
+// 編輯模式時 preview_url 為空，<img> fallback 用 image_url 直接顯示
+const fImages = ref<{ image_url: string; preview_url?: string }[]>([])
 const fTitle = ref('')
 const fDescription = ref('')
 const fCategoryId = ref<string>('')
@@ -102,8 +105,11 @@ async function onFileChange(e: Event) {
         uploadError.value = `${file.name} 非 JPEG/PNG，已跳過`
         continue
       }
-      const url = await uploadCaseImage(file)
-      fImages.value.push({ image_url: url })
+      // 沿用 production page 模式：blob URL 用於 dialog 內預覽（瞬間可見，
+      // 不受 Firebase 傳播延遲影響）；Firebase URL 只用於送 backend。
+      const previewUrl = URL.createObjectURL(file)
+      const firebaseUrl = await uploadCaseImage(file)
+      fImages.value.push({ image_url: firebaseUrl, preview_url: previewUrl })
     }
   } catch (err) {
     uploadError.value = (err as { message?: string }).message || '上傳失敗'
@@ -114,6 +120,9 @@ async function onFileChange(e: Event) {
 }
 
 function removeImage(idx: number) {
+  // 釋放 blob URL（避免記憶體洩漏）
+  const removed = fImages.value[idx]
+  if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url)
   fImages.value.splice(idx, 1)
 }
 
@@ -144,6 +153,10 @@ watch(
   [() => dialogOpen.value, () => editing.value],
   () => {
     if (dialogOpen.value) {
+      // 開啟前先釋放上一輪 blob URLs（避免重複開關累積）
+      for (const img of fImages.value) {
+        if (img.preview_url) URL.revokeObjectURL(img.preview_url)
+      }
       const e = editing.value
       // 編輯模式：用 backend 回的 images 陣列；建立模式：空
       // 後端有 backfill，舊案例不會出現「沒 images 但有 image_url」的狀況
@@ -211,7 +224,8 @@ async function submit() {
     canvas_h_cm: fCanvasH.value ? Number(fCanvasH.value) : null,
     difficulty: (fDifficulty.value || null) as Difficulty | null,
     is_published: fIsPublished.value,
-    images: fImages.value,  // 順序即 sort_order
+    // 只送 image_url 給 backend，preview_url 是本地 blob URL 不送
+    images: fImages.value.map((i) => ({ image_url: i.image_url })),
   }
   try {
     if (editing.value) {
@@ -375,11 +389,11 @@ const categoryById = computed(() => {
             :class="idx === 0 ? 'border-accent-deep ring-1 ring-accent-deep/30' : 'border-line-hairline'"
           >
             <img
-              v-if="!isBroken(img.image_url)"
-              :src="img.image_url"
+              v-if="!isBroken(img.preview_url || img.image_url)"
+              :src="img.preview_url || img.image_url"
               :alt="`圖 ${idx + 1}`"
               class="w-full h-full object-contain bg-paper-surface"
-              @error="markBroken(img.image_url)"
+              @error="markBroken(img.preview_url || img.image_url)"
             />
             <div
               v-else
