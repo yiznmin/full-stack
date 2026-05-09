@@ -263,6 +263,26 @@ export async function uploadCaseImage(file: File): Promise<string> {
   if (!putRes.ok && !signed.upload_url.startsWith('https://stub.firebase')) {
     throw new Error(`Firebase 拒絕上傳：HTTP ${putRes.status}`)
   }
+
+  // 驗證上傳後的 URL 是否真的可讀（防 Firebase eventual-consistency 或 storage rules 沒開）
+  // 重試最多 3 次，間隔 600ms（Firebase 寫入後通常 1-2 秒內可讀）
+  if (!signed.public_url.startsWith('https://stub.firebase')) {
+    let lastStatus = 0
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 100 : 600))
+      try {
+        const verify = await fetch(signed.public_url, { method: 'HEAD' })
+        lastStatus = verify.status
+        if (verify.ok) return signed.public_url
+      } catch {
+        // 網路錯誤 → 下一輪再試
+      }
+    }
+    throw new Error(
+      `上傳成功但 URL 無法公開讀取（最後一次驗證 HTTP ${lastStatus}）。請聯絡管理員檢查 Firebase Storage 規則是否允許 case_images/** 公開讀。\n` +
+      `URL：${signed.public_url}`,
+    )
+  }
   return signed.public_url
 }
 
