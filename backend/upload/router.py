@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 
+from core.exceptions import BadRequestError
 from dependencies.auth import require_admin, require_auth
 from production import service as production_service
 from production.schemas.request import UploadProductionImageRequest
@@ -38,9 +39,66 @@ async def upload_case_image(
     body: UploadImageRequest,
     _=Depends(require_admin),
 ):
+    """legacy signed-URL flow（保留向後相容；admin 新版用 /upload/case-image-direct）。"""
     return upload_service.generate_public_signed_url(
         "case_images", body.filename, body.content_type
     )
+
+
+# ── 直接上傳（後端代收 → Firebase）— 案例圖專用 ─────────────────────────
+
+
+_MAX_CASE_IMAGE_BYTES = 20 * 1024 * 1024
+_ALLOWED_CASE_IMAGE_TYPES = ("image/jpeg", "image/png")
+
+
+class CaseImageDirectResponse(PublicUploadResponse):
+    """直接上傳完成後回 public_url（已含 download token，永久可讀）。
+
+    upload_url / expires_at 為 compat，內容與 public_url 一致 / 100 年後。
+    """
+
+
+@router.post(
+    "/upload/case-image-direct",
+    response_model=CaseImageDirectResponse,
+    description=(
+        "Admin 直接上傳案例圖（multipart/form-data field name: file）。"
+        "後端代收檔案後上傳 Firebase 並注入 download token → 回 100% 可讀的永久 URL。"
+        "取代 /upload/case-image 的 signed-URL 流程，避開 PUT/GET race。"
+    ),
+)
+async def upload_case_image_direct(
+    file: UploadFile = File(...),  # noqa: B008
+    _=Depends(require_admin),
+):
+    if file.content_type not in _ALLOWED_CASE_IMAGE_TYPES:
+        raise BadRequestError(
+            f"只接受 JPEG / PNG（收到 {file.content_type}）",
+            code="UNSUPPORTED_CONTENT_TYPE",
+        )
+    contents = await file.read()
+    if len(contents) > _MAX_CASE_IMAGE_BYTES:
+        raise BadRequestError(
+            f"檔案超過 {_MAX_CASE_IMAGE_BYTES // (1024 * 1024)}MB",
+            code="FILE_TOO_LARGE",
+        )
+    if len(contents) == 0:
+        raise BadRequestError("檔案為空", code="EMPTY_FILE")
+
+    from datetime import UTC, datetime, timedelta
+
+    result = upload_service.upload_public_file_server_side(
+        "case_images",
+        contents,
+        file.filename or "untitled",
+        file.content_type,
+    )
+    return {
+        "upload_url": result["public_url"],
+        "public_url": result["public_url"],
+        "expires_at": datetime.now(UTC) + timedelta(days=36500),
+    }
 
 
 @router.post("/upload/custom-photo", response_model=PrivateUploadResponse)

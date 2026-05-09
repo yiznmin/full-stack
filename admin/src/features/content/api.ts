@@ -228,62 +228,23 @@ export function deleteCustomCase(id: string) {
   return request<void>(`/admin/custom-cases/${id}`, { method: 'DELETE' })
 }
 
-// ── Case image upload (Firebase signed URL → 公開 case_images/) ───────
-
-interface PublicSignedUrl {
-  upload_url: string
-  public_url: string
-  expires_at: string
-}
+// ── Case image upload (multipart → 後端代收 → Firebase + download token) ─
 
 export async function uploadCaseImage(file: File): Promise<string> {
-  const contentType: 'image/png' | 'image/jpeg' =
-    file.type === 'image/png' ? 'image/png' : 'image/jpeg'
-  const signed = await request<PublicSignedUrl>('/upload/case-image', {
+  // 後端代收 multipart 直傳 → 後端用 Firebase Admin SDK 上傳並注入 download token
+  // → 回 100% 可讀的永久 URL（不再走 signed PUT，避開 PUT/GET race）
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`${API}/upload/case-image-direct`, {
     method: 'POST',
-    body: JSON.stringify({
-      filename: file.name,
-      content_type: contentType,
-      size: file.size,
-    }),
+    credentials: 'include',
+    body: fd,
   })
-  let putRes: Response
-  try {
-    putRes = await fetch(signed.upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': contentType },
-      body: file,
-    })
-  } catch (e) {
-    throw new Error(
-      'PUT Firebase 失敗（多半是 CORS）— 請 admin 用「系統 → Firebase CORS 修正」按鈕設定。' +
-        ` 原始錯誤：${(e as Error).message}`,
-    )
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(body?.message || body?.detail || `上傳失敗：HTTP ${res.status}`)
   }
-  if (!putRes.ok && !signed.upload_url.startsWith('https://stub.firebase')) {
-    throw new Error(`Firebase 拒絕上傳：HTTP ${putRes.status}`)
-  }
-
-  // 驗證上傳後的 URL 是否真的可讀（防 Firebase eventual-consistency 或 storage rules 沒開）
-  // 重試最多 3 次，間隔 600ms（Firebase 寫入後通常 1-2 秒內可讀）
-  if (!signed.public_url.startsWith('https://stub.firebase')) {
-    let lastStatus = 0
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await new Promise((r) => setTimeout(r, attempt === 0 ? 100 : 600))
-      try {
-        const verify = await fetch(signed.public_url, { method: 'HEAD' })
-        lastStatus = verify.status
-        if (verify.ok) return signed.public_url
-      } catch {
-        // 網路錯誤 → 下一輪再試
-      }
-    }
-    throw new Error(
-      `上傳成功但 URL 無法公開讀取（最後一次驗證 HTTP ${lastStatus}）。請聯絡管理員檢查 Firebase Storage 規則是否允許 case_images/** 公開讀。\n` +
-      `URL：${signed.public_url}`,
-    )
-  }
-  return signed.public_url
+  return body.public_url as string
 }
 
 // ── 從 production_job 帶入規格 + 封面圖（重用既有 endpoint） ──────────
