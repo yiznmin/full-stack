@@ -176,22 +176,28 @@ const customPhotoUrl = ref<string | null>(null)
 const customPhotoLoading = ref(false)
 const customPhotoMissing = ref(false)
 
-watch(selectedCustomRequestId, async (id) => {
-  customPhotoUrl.value = null
-  customPhotoMissing.value = false
-  if (!id) return
-  customPhotoLoading.value = true
-  try {
-    const r = await fetchPhotoSignedUrl(id)
-    customPhotoUrl.value = r.url
-  } catch (e) {
-    const err = e as { status?: number }
-    if (err.status === 404) customPhotoMissing.value = true
-    else apiError.value = (e as { message?: string }).message || '取得照片失敗'
-  } finally {
-    customPhotoLoading.value = false
-  }
-})
+watch(
+  selectedCustomRequestId,
+  async (id) => {
+    customPhotoUrl.value = null
+    customPhotoMissing.value = false
+    if (!id) return
+    customPhotoLoading.value = true
+    try {
+      const r = await fetchPhotoSignedUrl(id)
+      customPhotoUrl.value = r.url
+    } catch (e) {
+      const err = e as { status?: number }
+      if (err.status === 404) customPhotoMissing.value = true
+      else apiError.value = (e as { message?: string }).message || '取得照片失敗'
+    } finally {
+      customPhotoLoading.value = false
+    }
+  },
+  // immediate: true — 從 ?customRequestId 帶入時，selectedCustomRequestId 已先賦值
+  // 才註冊 watch，沒 immediate 永遠不觸發 → 照片永遠不載入。
+  { immediate: true },
+)
 
 const customOptions = computed(() => {
   const opts = [{ value: '', label: '— 請選擇客製申請 —' }]
