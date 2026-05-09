@@ -7,7 +7,7 @@
       → 接 ECpay 回傳，驗章後 postMessage 給 opener，close 自己
 """
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
@@ -432,7 +432,8 @@ async def print_shipment_label(
     dry_run 模式回 mock 預覽 HTML，不真連 ECpay。
     """
     from sqlalchemy import select as _select
-    from orders.models import Shipment, Order
+
+    from orders.models import Order, Shipment
 
     result = await db.execute(_select(Shipment).where(Shipment.id == shipment_id))
     shipment = result.scalar_one_or_none()
@@ -615,12 +616,14 @@ async def status_callback(request: Request):
 
     來源：docs/integration_specs/ecpay_status_tracking.md
     """
-    from urllib.parse import parse_qsl
-    from sqlalchemy.ext.asyncio import AsyncSession  # noqa
-    from core.database import get_db as _get_db
-    from sqlalchemy import select as _select
-    from orders.models import Shipment, Order, OrderStatusEnum, ShipmentStatusEnum
     import logging
+    from urllib.parse import parse_qsl
+
+    from sqlalchemy import select as _select
+    from sqlalchemy.ext.asyncio import AsyncSession  # noqa
+
+    from core.database import get_db as _get_db
+    from orders.models import Order, OrderStatusEnum, Shipment, ShipmentStatusEnum
 
     log = logging.getLogger(__name__)
 
@@ -707,8 +710,8 @@ async def status_callback(request: Request):
                     ):
                         if order.status != OrderStatusEnum.completed:
                             order.status = OrderStatusEnum.completed
-                            from datetime import datetime as _dt, timezone as _tz
-                            order.completed_at = _dt.now(_tz.utc)
+                            from datetime import datetime as _dt
+                            order.completed_at = _dt.now(UTC)
                             log.info(f"[status-callback] order {order.id} auto-completed")
 
             await db.commit()

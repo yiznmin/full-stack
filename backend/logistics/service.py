@@ -392,7 +392,7 @@ async def query_logistics_trade(
 
 def parse_ecpay_datetime(s: str) -> datetime | None:
     """解析 ECpay 'yyyy/MM/dd HH:mm:ss' 為 datetime（UTC+0 naive，視為台灣時間 +8 → UTC）."""
-    from datetime import timezone, timedelta
+    from datetime import timedelta, timezone
     if not s:
         return None
     try:
