@@ -6,13 +6,20 @@ from pydantic import BaseModel
 
 class CartItemResponse(BaseModel):
     id: UUID
-    variant_id: UUID
+    is_custom: bool = False
+    variant_id: UUID | None = None
     product_id: UUID | None = None
     product_title: str
     product_image_url: str | None = None
     variant_image_url: str | None = None
     thumb_url: str | None = None
     variant_spec: dict
+    # 客製 line（non-custom 為 None）
+    custom_request_id: UUID | None = None
+    production_job_id: UUID | None = None
+    quote_status: str | None = None
+    quote_expires_at: datetime | None = None
+    quote_expired: bool = False
     unit_price: float
     quantity: int
     fulfilled_units: int
@@ -30,6 +37,10 @@ class CartResponse(BaseModel):
 
 class CheckoutPreviewResponse(BaseModel):
     subtotal: float
+    # 一般商品 subtotal（免運門檻計算用，排除客製）
+    non_custom_subtotal: float | None = None
+    non_custom_qty: int | None = None
+    expired_custom_count: int | None = None
     discount_amount: float
     discount_source: str | None
     shipping_fee: float
