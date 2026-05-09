@@ -80,8 +80,16 @@ class CartItem(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    # 一般商品（產品變體）— 跟 custom_request_id 二選一
     product_variant_id = Column(
-        UUID(as_uuid=True), ForeignKey("product_variants.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("product_variants.id"), nullable=True
+    )
+    # 客製申請 — quote 確認後加進來；綁定 quoted_production_job_id 的版本
+    custom_request_id = Column(
+        UUID(as_uuid=True), ForeignKey("custom_requests.id"), nullable=True
+    )
+    production_job_id = Column(
+        UUID(as_uuid=True), ForeignKey("production_jobs.id"), nullable=True
     )
     quantity = Column(Integer, nullable=False, default=1)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

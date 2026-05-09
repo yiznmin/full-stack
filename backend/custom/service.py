@@ -662,8 +662,15 @@ async def get_quote_preview_image(
 
 
 async def confirm_quote(
-    db: AsyncSession, user_id: UUID, token: str, shipping_profile_id: UUID
+    db: AsyncSession, user_id: UUID, token: str, quantity: int = 1
 ) -> dict:
+    """客戶確認報價 → 加進 cart（不再直接建 Order）。
+
+    新流程：
+    - 客製可跟一般商品一起買，cart 結帳時統一選地址 + 處理免運（客製不算門檻除非有免運券）
+    - quote 仍 active 在 quote_sent；user 結帳時驗證未過期
+    - 不再要求 shipping_profile（移到 cart 結帳）
+    """
     req = await _load_request_by_token(db, token)
     if req.user_id != user_id:
         raise NotFoundError("報價連結無效")
@@ -671,152 +678,39 @@ async def confirm_quote(
         raise BadRequestError("報價狀態不允許確認", code="QUOTE_NOT_PENDING")
     if req.quote_expires_at and req.quote_expires_at < datetime.now(UTC):
         raise GoneError("報價已逾期", code="QUOTE_EXPIRED")
-
-    profile_result = await db.execute(
-        select(ShippingProfile).where(
-            ShippingProfile.id == shipping_profile_id,
-            ShippingProfile.user_id == user_id,
+    if req.quoted_production_job_id is None:
+        raise BadRequestError(
+            "報價未綁定製作版本，無法加入購物車", code="QUOTE_NO_PRODUCTION_JOB",
         )
-    )
-    profile = profile_result.scalar_one_or_none()
-    if profile is None:
-        raise NotFoundError("找不到指定的配送資料")
+    if quantity < 1:
+        raise BadRequestError("數量需大於 0", code="INVALID_QUANTITY")
 
-    job_result = await db.execute(
-        select(ProductionJob).where(
-            ProductionJob.custom_request_id == req.id,
-            ProductionJob.approved == True,  # noqa: E712
-        ).order_by(ProductionJob.approved_at.desc())
-    )
-    job = job_result.scalars().first()
-    if job is None:
-        raise BadRequestError("尚未有對應的已核准製作記錄", code="PRODUCTION_NOT_READY")
+    # 加進 cart（add_cart_custom_item 會驗 quote owner / status / expires / job 等）
+    from orders.service import add_cart_custom_item  # noqa: PLC0415
+    cart_item = await add_cart_custom_item(db, user_id, req.id, quantity)
 
-    shipping_type = _enum_val(profile.shipping_type)
-    shipping_fee = SHIPPING_FEE_HOME if shipping_type == "home" else SHIPPING_FEE_CONVENIENCE
-    quoted_price = Decimal(str(req.quoted_price))
-    total = quoted_price + shipping_fee
-
-    shipping_snapshot = {
-        "type": shipping_type,
-        "recipient_name": profile.recipient_name,
-        "phone": profile.phone,
-        "notify_email": profile.email,
-        "city": profile.city,
-        "district": profile.district,
-        "address_detail": profile.address_detail,
-        "store_id": profile.store_id,
-        "store_name": profile.store_name,
-    }
-
-    from sqlalchemy import text as sa_text
-    seq_sql = (
-        "SELECT TO_CHAR(now(), 'PL-YYYYMMDD-')"
-        " || LPAD(nextval('order_number_seq')::text, 6, '0')"
-    )
-    order_number_result = await db.execute(sa_text(seq_sql))
-    order_number = order_number_result.scalar()
-
-    deadline_hours = int(
-        await _get_setting(db, "payment_absolute_deadline_hours") or "48"
-    )
-    payment_deadline = datetime.now(UTC) + timedelta(hours=deadline_hours)
-
-    order_id = uuid4()
-    order = Order(
-        id=order_id,
-        order_number=order_number,
-        user_id=user_id,
-        status=OrderStatusEnum.pending_payment,
-        subtotal=quoted_price,
-        discount_amount=Decimal("0"),
-        discount_source=None,
-        auto_checkout_config_id=None,
-        shipping_fee=shipping_fee,
-        total=total,
-        user_coupon_id=None,
-        shipping_type=shipping_type,
-        shipping_preference=None,
-        shipping_snapshot=shipping_snapshot,
-        payment_deadline=payment_deadline,
-        customer_notes=None,
-    )
-    db.add(order)
-    await db.flush()
-
-    item = OrderItem(
-        order_id=order.id,
-        product_variant_id=None,
-        custom_request_id=req.id,
-        production_job_id=job.id,
-        product_title_snapshot="客製作品",
-        variant_spec_snapshot={
-            "canvas_w_cm": float(job.canvas_w_cm) if job.canvas_w_cm else None,
-            "canvas_h_cm": float(job.canvas_h_cm) if job.canvas_h_cm else None,
-            "difficulty": _enum_val(job.difficulty),
-            "detail": _enum_val(job.detail),
-            "color_count": job.num_colors_used,
-        },
-        unit_price=quoted_price,
-        quantity=1,
-        fulfilled_qty=0,
-        preorder_qty=1,
-        is_returned=False,
-    )
-    db.add(item)
-
-    req.status = CustomRequestStatusEnum.quote_confirmed
-    req.order_id = order.id
-
+    # 通知 admin 客戶把報價加進購物車（status 不變，customer 結帳時才觸發 quote_confirmed）
     await create_notification(
         db,
-        type="quote_confirmed",
-        message=f"客戶已確認報價（申請 {req.id}）",
+        type="quote_in_cart",
+        message=f"客戶把報價 #{str(req.id)[:8]} 加進購物車（量：{quantity}）",
         reference_type="custom_request",
         reference_id=req.id,
         requires_action=False,
     )
 
-    payment_info = {
-        "bank_account_number": await _get_setting(db, "bank_account_number") or "",
-        "bank_name": await _get_setting(db, "bank_name") or "",
-        "bank_account_name": await _get_setting(db, "bank_account_name") or "",
-    }
-
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one()
-    await _send_email(
-        to=user.email,
-        subject=f"【PaintLearn】訂單確認 {order_number}",
-        html=(
-            f"<p>感謝您的客製訂單！訂單編號：{order_number}</p>"
-            f"<p>應付金額：NT${float(total):.0f}</p>"
-            f"<p>付款期限：{payment_deadline.strftime('%Y-%m-%d %H:%M')}</p>"
-        ),
-    )
-
-    await db.commit()
-
-    # SSE: 通知 admin 客戶已確認報價
-    _publish_to_admin("quote_confirmed", {
+    # SSE: 通知 admin
+    _publish_to_admin("quote_in_cart", {
         "request_id": str(req.id),
-        "order_id": str(order.id),
-        "order_number": order_number,
-        "status": _enum_val(req.status),
-    })
-    # SSE: 同時通知 customer SSE（自己的別分頁也需即時換 status badge）
-    _publish_to_customer(req.id, "status_changed", {
-        "request_id": str(req.id),
-        "status": _enum_val(req.status),
-        "order_id": str(order.id),
+        "cart_item_id": str(cart_item.id),
+        "quantity": quantity,
     })
 
     return {
-        "order_id": order.id,
-        "order_number": order_number,
-        "total": float(total),
-        "payment_deadline": payment_deadline,
-        "payment_info": payment_info,
+        "cart_item_id": cart_item.id,
+        "custom_request_id": req.id,
+        "quantity": quantity,
+        "quoted_price": float(req.quoted_price) if req.quoted_price else 0.0,
     }
 
 

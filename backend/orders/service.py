@@ -115,19 +115,91 @@ async def _send_email(to: str, subject: str, html: str) -> None:
 # ── cart service ──────────────────────────────────────────────────────────────
 
 async def get_cart(db: AsyncSession, user_id: UUID) -> dict:
-    result = await db.execute(
-        select(CartItem, ProductVariant, Product, ProductionJob)
-        .join(ProductVariant, CartItem.product_variant_id == ProductVariant.id)
-        .join(Product, ProductVariant.product_id == Product.id)
-        .outerjoin(ProductionJob, ProductVariant.production_job_id == ProductionJob.id)
+    """回 cart items（一般商品 + 客製 line 混合）。
+
+    一般 line：via product_variant_id；含 fulfillable / preorder 計算
+    客製 line：via custom_request_id；qty 可大於 1，unit_price = quoted_price
+    """
+    from custom.models import CustomRequest, CustomRequestStatusEnum  # noqa: PLC0415
+
+    cart_rows = (await db.execute(
+        select(CartItem)
         .where(CartItem.user_id == user_id)
         .order_by(CartItem.created_at)
-    )
-    rows = result.all()
+    )).scalars().all()
 
     items = []
-    for cart_item, variant, product, job in rows:
-        qty = cart_item.quantity
+    for ci in cart_rows:
+        if ci.custom_request_id is not None:
+            # 客製 line — 從 custom_request 拉資料
+            cr_result = await db.execute(
+                select(CustomRequest).where(CustomRequest.id == ci.custom_request_id)
+            )
+            cr = cr_result.scalar_one_or_none()
+            if cr is None:
+                # custom_request 已被刪除，跳過（cascade 應已清，這是防禦性）
+                continue
+            # 抓對應 production_job 拿縮圖
+            job = None
+            if ci.production_job_id:
+                job_result = await db.execute(
+                    select(ProductionJob).where(ProductionJob.id == ci.production_job_id)
+                )
+                job = job_result.scalar_one_or_none()
+            # 客製 line 沒有「現貨/預購」概念 — 全部都是預購（admin 製作）
+            qty = ci.quantity
+            unit_price = float(cr.quoted_price) if cr.quoted_price else 0.0
+            quote_expired = (
+                cr.status not in (
+                    CustomRequestStatusEnum.quote_sent,
+                    CustomRequestStatusEnum.quote_confirmed,
+                )
+                or (cr.quote_expires_at is not None and cr.quote_expires_at < datetime.now(UTC))
+            )
+            items.append({
+                "id": ci.id,
+                "is_custom": True,
+                "variant_id": None,
+                "product_id": None,
+                "product_title": "客製作品",
+                "product_image_url": None,
+                "variant_image_url": job.filled_template_url if job else None,
+                "thumb_url": None,
+                "variant_spec": {
+                    "canvas_w_cm": cr.canvas_w_cm,
+                    "canvas_h_cm": cr.canvas_h_cm,
+                    "difficulty": (
+                        cr.difficulty.value if hasattr(cr.difficulty, "value") else cr.difficulty
+                    ),
+                },
+                "custom_request_id": ci.custom_request_id,
+                "production_job_id": ci.production_job_id,
+                "quote_status": (
+                    cr.status.value if hasattr(cr.status, "value") else str(cr.status)
+                ),
+                "quote_expires_at": cr.quote_expires_at,
+                "quote_expired": quote_expired,
+                "unit_price": unit_price,
+                "quantity": qty,
+                "fulfilled_units": 0,
+                "preorder_units": qty,
+                "is_active": True,
+            })
+            continue
+
+        # 一般 line — 透過 variant join 拉資料
+        if ci.product_variant_id is None:
+            continue  # 異常資料：兩個 FK 都空，跳過
+        row = (await db.execute(
+            select(ProductVariant, Product, ProductionJob)
+            .join(Product, ProductVariant.product_id == Product.id)
+            .outerjoin(ProductionJob, ProductVariant.production_job_id == ProductionJob.id)
+            .where(ProductVariant.id == ci.product_variant_id)
+        )).one_or_none()
+        if row is None:
+            continue
+        variant, product, job = row
+        qty = ci.quantity
         if variant.production_job_id:
             fulfillable = await _compute_fulfillable_qty(db, variant.production_job_id, qty)
         else:
@@ -135,10 +207,9 @@ async def get_cart(db: AsyncSession, user_id: UUID) -> dict:
         fulfilled_units = fulfillable
         preorder_units = qty - fulfillable
         variant_spec = _job_spec(job) if job else {}
-        # 縮圖：用 product.cover_image_url（admin 已設為公開讀取的 product_images/ 路徑）
-        # 不用 job.filled_template_url 因為那是 production_jobs/ 私有路徑、cart 顯示會 403
         items.append({
-            "id": cart_item.id,
+            "id": ci.id,
+            "is_custom": False,
             "variant_id": variant.id,
             "product_id": product.id,
             "product_title": product.title,
@@ -146,6 +217,11 @@ async def get_cart(db: AsyncSession, user_id: UUID) -> dict:
             "variant_image_url": job.filled_template_url if job else None,
             "thumb_url": product.cover_image_url,
             "variant_spec": variant_spec,
+            "custom_request_id": None,
+            "production_job_id": None,
+            "quote_status": None,
+            "quote_expires_at": None,
+            "quote_expired": False,
             "unit_price": float(variant.price),
             "quantity": qty,
             "fulfilled_units": fulfilled_units,
@@ -189,6 +265,71 @@ async def add_cart_item(
     return cart_item
 
 
+async def add_cart_custom_item(
+    db: AsyncSession,
+    user_id: UUID,
+    custom_request_id: UUID,
+    quantity: int = 1,
+) -> CartItem:
+    """把客戶確認的 quote 加進 cart。
+
+    驗證：
+    - custom_request 屬於該 user
+    - status == quote_sent（其他狀態不能加）
+    - quote_expires_at 未過期
+    - production_job_id 必須有（admin 在 QuoteDialog 已選定）
+
+    冪等：同一個 custom_request 只能在 cart 一筆（既有則 quantity += 不疊加，直接覆蓋；
+    這個流程不該疊加，cart 加進去時會帶用戶這次選的 qty）。
+    """
+    from custom.models import CustomRequest, CustomRequestStatusEnum  # noqa: PLC0415
+
+    cr_result = await db.execute(
+        select(CustomRequest).where(
+            CustomRequest.id == custom_request_id,
+            CustomRequest.user_id == user_id,
+        )
+    )
+    cr = cr_result.scalar_one_or_none()
+    if cr is None:
+        raise NotFoundError("客製申請不存在")
+    if cr.status != CustomRequestStatusEnum.quote_sent:
+        raise ConflictError("此申請的報價狀態不允許加入購物車", code="QUOTE_NOT_PENDING")
+    if cr.quote_expires_at and cr.quote_expires_at < datetime.now(UTC):
+        raise ConflictError("報價已逾期", code="QUOTE_EXPIRED")
+    if cr.quoted_production_job_id is None:
+        raise ConflictError(
+            "報價未綁定製作版本，無法加入購物車", code="QUOTE_NO_PRODUCTION_JOB",
+        )
+    if quantity < 1:
+        raise ConflictError("數量需大於 0", code="INVALID_QUANTITY")
+
+    existing = (await db.execute(
+        select(CartItem).where(
+            CartItem.user_id == user_id,
+            CartItem.custom_request_id == custom_request_id,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        # 同個 custom_request 已在 cart → 改數量（不疊加；user 重新加是重設）
+        existing.quantity = quantity
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    cart_item = CartItem(
+        user_id=user_id,
+        product_variant_id=None,
+        custom_request_id=custom_request_id,
+        production_job_id=cr.quoted_production_job_id,
+        quantity=quantity,
+    )
+    db.add(cart_item)
+    await db.commit()
+    await db.refresh(cart_item)
+    return cart_item
+
+
 async def update_cart_item(
     db: AsyncSession, user_id: UUID, item_id: UUID, quantity: int
 ) -> CartItem | None:
@@ -221,8 +362,21 @@ async def delete_cart_item(db: AsyncSession, user_id: UUID, item_id: UUID) -> No
     await db.commit()
 
 
-def _compute_shipping_fee(subtotal: Decimal, total_qty: int, shipping_type: str) -> Decimal:
-    if subtotal >= FREE_SHIPPING_MIN_AMOUNT or total_qty >= FREE_SHIPPING_MIN_QTY:
+def _compute_shipping_fee(
+    non_custom_subtotal: Decimal,
+    non_custom_qty: int,
+    shipping_type: str,
+    free_shipping_coupon: bool = False,
+) -> Decimal:
+    """免運判定：
+
+    - 免運券 → 直接免運（trumps everything）
+    - 一般商品 subtotal ≥ 800 OR 一般商品 qty ≥ 3 → 免運
+    - **客製商品不計入門檻**（客戶要求）
+    """
+    if free_shipping_coupon:
+        return Decimal("0")
+    if non_custom_subtotal >= FREE_SHIPPING_MIN_AMOUNT or non_custom_qty >= FREE_SHIPPING_MIN_QTY:
         return Decimal("0")
     if shipping_type == "home":
         return SHIPPING_FEE_HOME
@@ -243,18 +397,35 @@ async def checkout_preview(
     subtotal = Decimal(str(cart["subtotal"]))
     total_qty = sum(i["quantity"] for i in cart["items"])
 
+    # 拆「一般商品」與「客製」 — 免運門檻只算一般商品
+    non_custom_items = [i for i in cart["items"] if not i.get("is_custom")]
+    custom_items = [i for i in cart["items"] if i.get("is_custom")]
+    non_custom_subtotal = Decimal(str(sum(
+        i["unit_price"] * i["quantity"] for i in non_custom_items
+    )))
+    non_custom_qty = sum(i["quantity"] for i in non_custom_items)
+
+    # 結帳前驗證所有客製 line 的 quote 仍 active；過期 → 警告
+    expired_custom = [i for i in custom_items if i.get("quote_expired")]
+
     discount_calc = await discount_svc.calculate_discount(
         db, user_id, float(subtotal), user_coupon_id, promo_code
     )
     discount_amount = Decimal(str(discount_calc["discount_amount"]))
+    # discount calculator 若回 free_shipping flag 表示用了免運券
+    free_shipping_coupon = bool(discount_calc.get("free_shipping"))
 
     free_shipping_reason: str | None = None
-    if subtotal >= FREE_SHIPPING_MIN_AMOUNT:
+    if free_shipping_coupon:
+        free_shipping_reason = "coupon"
+    elif non_custom_subtotal >= FREE_SHIPPING_MIN_AMOUNT:
         free_shipping_reason = "amount"
-    elif total_qty >= FREE_SHIPPING_MIN_QTY:
+    elif non_custom_qty >= FREE_SHIPPING_MIN_QTY:
         free_shipping_reason = "quantity"
 
-    shipping_fee = _compute_shipping_fee(subtotal, total_qty, shipping_type)
+    shipping_fee = _compute_shipping_fee(
+        non_custom_subtotal, non_custom_qty, shipping_type, free_shipping_coupon,
+    )
     total = subtotal - discount_amount + shipping_fee
 
     has_preorder = any(i["preorder_units"] > 0 for i in cart["items"])
@@ -271,6 +442,9 @@ async def checkout_preview(
 
     return {
         "subtotal": float(subtotal),
+        "non_custom_subtotal": float(non_custom_subtotal),
+        "non_custom_qty": non_custom_qty,
+        "expired_custom_count": len(expired_custom),
         "discount_amount": float(discount_amount),
         "discount_source": discount_calc["discount_source"],
         "shipping_fee": float(shipping_fee),

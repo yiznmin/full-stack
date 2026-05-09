@@ -84,6 +84,21 @@ async def init_schema() -> None:
                 "ADD COLUMN IF NOT EXISTS quoted_production_job_id UUID "
                 "REFERENCES production_jobs(id) ON DELETE SET NULL"
             ))
+            # cart_items 支援客製 line：客戶 confirm quote 後加進 cart 跟一般商品合買
+            # product_variant_id 改 nullable（custom_request_id 有值時 variant 為 null）
+            await conn.execute(text(
+                "ALTER TABLE cart_items ALTER COLUMN product_variant_id DROP NOT NULL"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE cart_items "
+                "ADD COLUMN IF NOT EXISTS custom_request_id UUID "
+                "REFERENCES custom_requests(id) ON DELETE CASCADE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE cart_items "
+                "ADD COLUMN IF NOT EXISTS production_job_id UUID "
+                "REFERENCES production_jobs(id) ON DELETE SET NULL"
+            ))
 
             # Backfill：已有 shipment 的訂單視為「已確認出貨資訊」（之前無此欄位的歷史訂單）
             print("[init_db] backfilling shipping_locked for shipped orders ...", flush=True)

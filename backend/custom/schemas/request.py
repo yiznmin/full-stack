@@ -73,7 +73,8 @@ class UpdateRequestFieldsRequest(BaseModel):
 
 
 class ConfirmQuoteRequest(BaseModel):
-    shipping_profile_id: UUID
+    """客戶確認報價並加進 cart（不再直接建 Order；地址在 cart 結帳時選）。"""
+    quantity: int = 1
 
 
 class RejectQuoteRequest(BaseModel):
