@@ -18,8 +18,20 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url, settings.admin_url],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # 收斂方法白名單（替代 ["*"]）— SAFE 方法 + 我們實際使用的 mutation 動詞 + OPTIONS preflight
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    # 限制 headers — 只允許前端實際會送的，避免 attacker 利用 echo 探測 internal headers
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+    ],
+    # response 暴露給 JS 的 headers — 我們不需要任何特殊 response header 給前端讀
+    expose_headers=[],
+    max_age=600,
 )
 
 app.add_exception_handler(AppError, app_error_handler)

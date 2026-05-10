@@ -8,6 +8,43 @@ import { Loader2, AlertTriangle, Crosshair, Plus, X } from 'lucide-vue-next'
 
 import type { BatchOperation, PaletteColor } from '../api'
 
+// SVG sanitizer — 用 DOMParser 解析後剝除 <script>、event handlers、<foreignObject>
+// 與 javascript: URLs。只處理我們確定要顯示的 SVG（pbn_gen 產出的 polygon 圖）。
+function sanitizeSvg(raw: string): string {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(raw, 'image/svg+xml')
+  const svg = doc.documentElement
+  if (!svg || svg.nodeName !== 'svg') return ''
+
+  // 黑名單元素：<script>、<foreignObject>（可內嵌 HTML/JS）、<iframe>、<embed>、<object>
+  const dangerousTags = ['script', 'foreignObject', 'iframe', 'embed', 'object', 'use']
+  for (const tag of dangerousTags) {
+    for (const el of Array.from(svg.getElementsByTagName(tag))) {
+      el.parentNode?.removeChild(el)
+    }
+  }
+
+  // 黑名單屬性：所有 on* event handlers + javascript: URLs in href/xlink:href
+  const walk = (node: Element) => {
+    for (const attr of Array.from(node.attributes)) {
+      const name = attr.name.toLowerCase()
+      const value = (attr.value || '').trim().toLowerCase()
+      if (name.startsWith('on')) {
+        node.removeAttribute(attr.name)
+      } else if (
+        (name === 'href' || name === 'xlink:href' || name === 'src')
+        && (value.startsWith('javascript:') || value.startsWith('data:text/html'))
+      ) {
+        node.removeAttribute(attr.name)
+      }
+    }
+    for (const child of Array.from(node.children)) walk(child)
+  }
+  walk(svg)
+
+  return new XMLSerializer().serializeToString(svg)
+}
+
 type OperationType = 'merge_color' | 'eliminate_border'
 
 const props = defineProps<{
@@ -75,7 +112,9 @@ watch(
       const res = await fetch(props.svgUrl)
       if (!res.ok) throw new Error(`SVG 載入失敗：HTTP ${res.status}`)
       const svgText = await res.text()
-      container.innerHTML = svgText
+      // 縱深防禦：SVG 來源是後端生成（私有 path）但仍 sanitize — 防止 storage path 若被
+      // 攻破，惡意 SVG 內 <script> / on* event handler / <foreignObject> 不會在 admin 頁面執行。
+      container.innerHTML = sanitizeSvg(svgText)
 
       // 強制 SVG 自適應容器寬度（zoom 透過 width % 放大）
       const svgEl = container.querySelector('svg')

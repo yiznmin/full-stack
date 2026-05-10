@@ -5,7 +5,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import bcrypt as _bcrypt
-from jose import jwt
+import jwt
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 

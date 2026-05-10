@@ -13,7 +13,9 @@ pydantic-settings==2.6.1
 pydantic[email]==2.10.3
 
 # Auth
-python-jose[cryptography]==3.3.0
+# PyJWT 取代 python-jose（後者已停止維護，且有 CVE-2024-33663 algorithm confusion）。
+# PyJWT 2.x 預設拒絕 `none` algorithm + 強制 algorithms whitelist，安全 baseline 較高。
+PyJWT[crypto]==2.12.1
 bcrypt==4.2.1
 
 # External services

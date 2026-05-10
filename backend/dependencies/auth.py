@@ -1,5 +1,5 @@
+import jwt
 from fastapi import Cookie, Depends
-from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +15,17 @@ async def get_current_user(
     if not access_token:
         raise UnauthorizedError()
     try:
-        payload = jwt.decode(access_token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        # PyJWT 鎖定演算法白名單避免 CVE-2024-33663（algorithm confusion）類攻擊。
+        # 過期 token 會 raise jwt.ExpiredSignatureError，亦屬 jwt.InvalidTokenError 子類。
+        payload = jwt.decode(
+            access_token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
         user_id: str = payload.get("user_id")
         if not user_id:
             raise UnauthorizedError()
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise UnauthorizedError() from None
 
     from auth.models import User
