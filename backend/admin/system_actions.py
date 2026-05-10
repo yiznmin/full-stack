@@ -33,7 +33,7 @@ async def preview_clear_test_data(db: AsyncSession) -> dict:
 
     # 通知只算 order/custom 相關的
     r = await db.execute(text(
-        "SELECT COUNT(*) FROM notifications "
+        "SELECT COUNT(*) FROM admin_notifications "
         "WHERE reference_type IN ('order', 'custom_request')"
     ))
     counts["notifications_to_clear"] = r.scalar() or 0
@@ -112,7 +112,7 @@ async def _do_clear(conn) -> dict:
 
     # 3. 清 order/custom 相關 notifications
     r = await conn.execute(text("""
-        DELETE FROM notifications
+        DELETE FROM admin_notifications
         WHERE reference_type IN ('order', 'custom_request')
     """))
     summary["notifications_deleted"] = r.rowcount or 0

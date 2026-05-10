@@ -57,7 +57,7 @@ async def main() -> None:
                 "orders", "order_items", "cart_items",
                 "custom_requests", "custom_request_messages",
                 "payment_submissions", "shipments", "production_progress",
-                "notifications",
+                "admin_notifications",
             ):
                 r = await conn.execute(text(f"SELECT COUNT(*) FROM {tbl}"))
                 counts[tbl] = r.scalar() or 0
@@ -126,7 +126,7 @@ async def main() -> None:
             # ── Phase 3: 清 notifications（只 order / custom_request 相關）──
             print("[3/9] 刪除 orders / customs 的 notifications ...")
             await conn.execute(text("""
-                DELETE FROM notifications
+                DELETE FROM admin_notifications
                 WHERE reference_type IN ('order', 'custom_request')
             """))
 
