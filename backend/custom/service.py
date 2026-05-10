@@ -1173,6 +1173,7 @@ async def _request_detail(db: AsyncSession, req: CustomRequest) -> dict:
         "difficulty": _enum_val(req.difficulty) if req.difficulty else None,
         "detail": _enum_val(req.detail) if req.detail else None,
         "customer_notes": req.customer_notes,
+        "display_consent": req.display_consent,
         "quoted_price": float(req.quoted_price) if req.quoted_price else None,
         "quote_expires_at": req.quote_expires_at,
         # owner / admin 兩端共用此 helper，token 對 owner 是合法可見（已驗 owner）

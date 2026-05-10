@@ -50,6 +50,8 @@ class CustomRequestDetailResponse(BaseModel):
     difficulty: str | None
     detail: str | None
     customer_notes: str | None
+    # 客人是否同意作品於 IG / 網站案例展示
+    display_consent: bool = False
     quoted_price: float | None
     quote_expires_at: datetime | None
     # plain token — owner 從 detail 直接 router.push 到 /custom/quote/:token

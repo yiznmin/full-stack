@@ -103,6 +103,7 @@ export interface CustomRequestDetail {
   difficulty: Difficulty | null
   detail: Detail | null
   customer_notes: string | null
+  display_consent: boolean
   admin_notes: string | null
   quoted_price: number | null
   quote_expires_at: string | null

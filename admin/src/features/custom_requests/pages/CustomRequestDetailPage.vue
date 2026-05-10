@@ -324,6 +324,20 @@ const requestTypeLabel = computed(() => {
             <p class="text-[11px] text-ink-muted tracking-[0.04em] uppercase mb-1">客戶備註</p>
             <p class="text-[13px] text-ink-default whitespace-pre-line">{{ req.customer_notes }}</p>
           </div>
+          <div class="mt-4 pt-4 border-t border-line-hairline">
+            <p class="text-[11px] text-ink-muted tracking-[0.04em] uppercase mb-1">展示授權</p>
+            <div
+              :class="[
+                'inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[12px] tracking-[0.04em]',
+                req.display_consent
+                  ? 'bg-fresh-tint border-fresh text-fresh font-medium'
+                  : 'bg-paper-deep border-line-subtle text-ink-muted',
+              ]"
+            >
+              <span class="text-[14px]">{{ req.display_consent ? '✓' : '○' }}</span>
+              <span>{{ req.display_consent ? '已同意作品於 IG / 網站案例展示' : '未同意展示（不可公開使用）' }}</span>
+            </div>
+          </div>
         </Card>
 
         <Card v-if="req.request_type === 'custom_photo'">

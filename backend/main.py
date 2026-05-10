@@ -9,9 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from core.exception_handlers import app_error_handler, unhandled_error_handler
 from core.exceptions import AppError
+from core.security_headers import SecurityHeadersMiddleware
 
 app = FastAPI(title="PaintLearn API", version="1.0.0")
 
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url, settings.admin_url],
