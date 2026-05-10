@@ -99,6 +99,12 @@ async def init_schema() -> None:
                 "ADD COLUMN IF NOT EXISTS production_job_id UUID "
                 "REFERENCES production_jobs(id) ON DELETE SET NULL"
             ))
+            # 客戶是否同意作品於 IG / 網站作品案例展示（spec 第九頁智財權條款）
+            # 對應 migration p6k7l8m9n0o1_custom_request_display_consent
+            await conn.execute(text(
+                "ALTER TABLE custom_requests "
+                "ADD COLUMN IF NOT EXISTS display_consent BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
 
             # Backfill：已有 shipment 的訂單視為「已確認出貨資訊」（之前無此欄位的歷史訂單）
             print("[init_db] backfilling shipping_locked for shipped orders ...", flush=True)

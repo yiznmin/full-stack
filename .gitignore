@@ -62,6 +62,17 @@ dist/
 backend/scripts/.needs_review
 backend/scripts/review_history/
 
+# Local-only diagnostic / smoke / test debris
+# 以底線開頭的 local script 與測試圖檔不入版控（避免污染 git status）
+backend/scripts/_*.py
+backend/scripts/_*.jpg
+backend/scripts/_*.png
+backend/scripts/diag_*.py
+backend/scripts/smoke_*.py
+# 根目錄測試截圖（chrome-devtools / 手動驗證留下的）
+/_*.png
+/_*.jpg
+
 # Claude Code local config + reviewer transcripts
 .claude/
 
