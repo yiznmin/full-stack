@@ -35,6 +35,8 @@ def _run_script(script: str) -> None:
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
     """Create tables once per session via subprocess to avoid asyncio event loop conflicts."""
+    # ECpay test：強制 dry-run，避免真打 ECpay API；http://testserver 也放行
+    settings.ecpay_dry_run = True
     _run_script("reset_test_db.py")
     yield
     _run_script("drop_test_db.py")

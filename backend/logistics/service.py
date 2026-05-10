@@ -495,8 +495,11 @@ def build_create_shipment_form(
         if not _re.fullmatch(r"09\d{8}", val):
             raise ValueError(f"{label}格式錯誤（需為 09xxxxxxxx）")
 
-    if not server_reply_url.startswith("https://") or len(server_reply_url) > MAX_SERVER_REPLY_URL_LEN:
-        raise ValueError("ServerReplyURL 需為 https 且 ≤ 200 字")
+    # https 強制只在 production 模式跑（dry-run / test 環境用 http://testserver 也放行）
+    if not settings.ecpay_dry_run and not server_reply_url.startswith("https://"):
+        raise ValueError("ServerReplyURL 需為 https")
+    if len(server_reply_url) > MAX_SERVER_REPLY_URL_LEN:
+        raise ValueError("ServerReplyURL ≤ 200 字")
 
     if logistics_type == "CVS":
         if not receiver_store_id:
