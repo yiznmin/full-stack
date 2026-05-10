@@ -117,19 +117,11 @@ async def _do_clear(conn) -> dict:
     """))
     summary["notifications_deleted"] = r.rowcount or 0
 
-    # 4. custom_request_messages
+    # 4. custom_request_messages（custom_requests 的 child）
     r = await conn.execute(text("DELETE FROM custom_request_messages"))
     summary["custom_messages_deleted"] = r.rowcount or 0
 
-    # 5. custom_requests（先解 production_jobs 反向 FK）
-    await conn.execute(text(
-        "UPDATE production_jobs SET custom_request_id = NULL "
-        "WHERE custom_request_id IS NOT NULL"
-    ))
-    r = await conn.execute(text("DELETE FROM custom_requests"))
-    summary["custom_requests_deleted"] = r.rowcount or 0
-
-    # 6. 訂單 children
+    # 5. 訂單 children — 沒外部 FK 指向它們，可以先刪
     r = await conn.execute(text("DELETE FROM shipments"))
     summary["shipments_deleted"] = r.rowcount or 0
     r = await conn.execute(text("DELETE FROM payment_submissions"))
@@ -137,15 +129,25 @@ async def _do_clear(conn) -> dict:
     r = await conn.execute(text("DELETE FROM production_progress"))
     summary["production_progress_deleted"] = r.rowcount or 0
 
-    # 7. order_items
+    # 6. order_items — FK 同時指 orders / custom_requests / production_jobs
+    #    必須在 orders 與 custom_requests 之前刪（FK default RESTRICT）
     r = await conn.execute(text("DELETE FROM order_items"))
     summary["order_items_deleted"] = r.rowcount or 0
 
-    # 8. cart_items
+    # 7. cart_items — FK 指 custom_requests（無 ON DELETE）
+    #    必須在 custom_requests 之前刪
     r = await conn.execute(text("DELETE FROM cart_items"))
     summary["cart_items_deleted"] = r.rowcount or 0
 
-    # 9. orders
+    # 8. custom_requests — 先解 production_jobs.custom_request_id 反向 FK
+    await conn.execute(text(
+        "UPDATE production_jobs SET custom_request_id = NULL "
+        "WHERE custom_request_id IS NOT NULL"
+    ))
+    r = await conn.execute(text("DELETE FROM custom_requests"))
+    summary["custom_requests_deleted"] = r.rowcount or 0
+
+    # 9. orders — 最後刪（child 全清完才可以）
     r = await conn.execute(text("DELETE FROM orders"))
     summary["orders_deleted"] = r.rowcount or 0
 
