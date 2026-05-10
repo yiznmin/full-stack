@@ -88,6 +88,11 @@ async def _seed_system_settings(db):
         ("bank_name", "測試銀行"),
         ("bank_account_name", "測試戶名"),
         ("payment_absolute_deadline_hours", "48"),
+        # ECpay 寄件人資訊（create_shipment 需要）
+        ("ecpay_sender_name", "測試寄件"),
+        ("ecpay_sender_phone", "0912345678"),
+        ("ecpay_sender_zip_code", "100"),
+        ("ecpay_sender_address", "台北市中正區"),
     ]:
         existing = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
         if existing.scalar_one_or_none() is None:
@@ -154,6 +159,15 @@ async def _create_order(client, **extra):
     payload = {"shipping_profile_id": profile_id}
     payload.update(extra)
     return await client.post(ORDERS_URL, json=payload)
+
+
+async def _lock_shipping(client, order_id):
+    """admin 確認出貨資訊 → 鎖定。create_shipment 前必須先 lock 否則 400。
+
+    backend 行為：admin 修改完出貨資訊（地址/超商門市）後 lock；lock 後不能再改。
+    test helper：直接呼叫 lock（test 用 _create_order 已建好 shipping_snapshot 不需修改）
+    """
+    return await client.post(f"{ADMIN_ORDERS_URL}/{order_id}/lock-shipping")
 
 
 # ── Cart Tests ────────────────────────────────────────────────────────────────
@@ -629,9 +643,10 @@ async def test_confirm_received_success(client, db):
     create_res = await _create_order(client)
     order_id = create_res.json()["order_id"]
 
-    # Admin: paid → create shipment (which marks as shipped)
+    # Admin: paid → lock-shipping → create shipment (marks as shipped)
     await _login_admin(client)
     await client.patch(f"{ADMIN_ORDERS_URL}/{order_id}/status", json={"status": "paid"})
+    await _lock_shipping(client, order_id)
     await client.post(
         f"{ADMIN_ORDERS_URL}/{order_id}/shipments", json={"shipment_type": "fulfilled"}
     )
@@ -892,14 +907,19 @@ async def test_create_shipment_ecpay_mock(client, db):
     order_id = create_res.json()["order_id"]
 
     await _login_admin(client)
-    await client.patch(f"{ADMIN_ORDERS_URL}/{order_id}/status", json={"status": "paid"})
+    paid_res = await client.patch(f"{ADMIN_ORDERS_URL}/{order_id}/status", json={"status": "paid"})
+    assert paid_res.status_code == 200, f"paid: {paid_res.status_code} {paid_res.text}"
+    lock_res = await _lock_shipping(client, order_id)
+    assert lock_res.status_code == 200, f"lock: {lock_res.status_code} {lock_res.text}"
 
     res = await client.post(
         f"{ADMIN_ORDERS_URL}/{order_id}/shipments", json={"shipment_type": "fulfilled"}
     )
-    assert res.status_code == 201
+    assert res.status_code == 201, f"shipment: {res.status_code} {res.text}"
     data = res.json()
-    assert data["tracking_number"].startswith("MOCK-")
+    # dry-run mode: tracking 以 DRY 開頭（13 字 CVSPaymentNo 格式），ecpay_logistics_id 以 MOCK 開頭
+    assert data["tracking_number"].startswith("DRY"), f"got tracking: {data['tracking_number']}"
+    assert data["ecpay_logistics_id"].startswith("MOCK"), f"got logistics_id: {data['ecpay_logistics_id']}"
 
     order_res = await db.execute(select(Order).where(Order.id == order_id))
     order = order_res.scalar_one()
@@ -1150,6 +1170,7 @@ async def test_ecpay_webhook_delivered_completes_order(client, db):
 
     await _login_admin(client)
     await client.patch(f"{ADMIN_ORDERS_URL}/{order_id}/status", json={"status": "paid"})
+    await _lock_shipping(client, order_id)
     ship_res = await client.post(
         f"{ADMIN_ORDERS_URL}/{order_id}/shipments", json={"shipment_type": "fulfilled"}
     )
@@ -1184,6 +1205,7 @@ async def test_ecpay_webhook_other_status_creates_notification(client, db):
 
     await _login_admin(client)
     await client.patch(f"{ADMIN_ORDERS_URL}/{order_id}/status", json={"status": "paid"})
+    await _lock_shipping(client, order_id)
     ship_res = await client.post(
         f"{ADMIN_ORDERS_URL}/{order_id}/shipments", json={"shipment_type": "fulfilled"}
     )
