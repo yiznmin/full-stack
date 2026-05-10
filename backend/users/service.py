@@ -127,7 +127,7 @@ async def request_email_change(
         f"<p><a href='{verify_url}'>{verify_url}</a></p>"
         f"<p>連結 24 小時內有效。</p>"
     )
-    await _send_email(new_email, "PaintLearn — 驗證您的新 Email", body)
+    await _send_email(new_email, "易木 YIIMUI — 驗證您的新 Email", body)
 
 
 async def get_member_stats(db: AsyncSession, user_id: UUID) -> dict:
@@ -245,7 +245,7 @@ async def resend_email_change_verification(
         f"<p><a href='{verify_url}'>{verify_url}</a></p>"
         f"<p>連結 24 小時內有效。</p>"
     )
-    await _send_email(user.pending_email, "PaintLearn — 驗證您的新 Email（重寄）", body)
+    await _send_email(user.pending_email, "易木 YIIMUI — 驗證您的新 Email（重寄）", body)
 
 
 async def list_shipping_profiles(

@@ -54,19 +54,60 @@ async def _send_email(to: str, subject: str, html: str) -> None:
 
 
 async def register(db: AsyncSession, name: str, email: str, password: str) -> None:
-    result = await db.execute(
-        select(User).where((User.email == email) | (User.pending_email == email))
+    """註冊新帳號 — 同時支援「未驗證帳號重新註冊」復原情境。
+
+    處理 4 種情境：
+    1. email 完全沒註冊 → 建新 user + 發驗證信
+    2. email 已註冊 + 已驗證 → 報錯「此 Email 已被使用」
+    3. email 已註冊 + 未驗證（token 過期或忘記點）→ 覆蓋密碼 / 名稱、
+       廢掉所有舊 signup tokens、發新驗證信。視為「重新開始註冊」。
+       原因：原本只報錯會把 user 卡死 — 沒收到信就再也不能用該 email 註冊。
+       安全分析：attacker 重註冊也無法登入（仍要驗證；驗證信寄到 email owner），
+       所以「覆蓋未驗證帳號」對 email owner 無風險。
+    4. email == 別人的 pending_email（已驗證 user 改 email 中）→ 報錯。
+    """
+    # 先檢查 pending_email 衝突（情境 4）— 這個無法重註冊復原，必須報錯
+    pending_conflict = await db.execute(
+        select(User).where(
+            User.pending_email == email,
+            User.is_email_verified == True,  # noqa: E712
+        )
     )
-    if result.scalar_one_or_none():
+    if pending_conflict.scalar_one_or_none():
         raise ConflictError("此 Email 已被使用")
 
-    user = User(
-        name=name,
-        email=email,
-        password_hash=_hash_password(password),
-    )
-    db.add(user)
-    await db.flush()
+    # 找既有 user 用此 email
+    result = await db.execute(select(User).where(User.email == email))
+    existing = result.scalar_one_or_none()
+
+    if existing and existing.is_email_verified:
+        # 情境 2：已驗證帳號，不可覆蓋
+        raise ConflictError("此 Email 已被使用")
+
+    if existing:
+        # 情境 3：未驗證帳號 → 覆蓋資料 + 廢舊 token + 發新驗證信
+        existing.name = name
+        existing.password_hash = _hash_password(password)
+        # 廢掉所有舊的 signup tokens（避免舊連結還能用）
+        await db.execute(
+            update(EmailVerificationToken)
+            .where(
+                EmailVerificationToken.user_id == existing.id,
+                EmailVerificationToken.token_type == TokenTypeEnum.signup,
+                EmailVerificationToken.used_at == None,  # noqa: E711
+            )
+            .values(used_at=datetime.now(UTC))
+        )
+        user = existing
+    else:
+        # 情境 1：建新 user
+        user = User(
+            name=name,
+            email=email,
+            password_hash=_hash_password(password),
+        )
+        db.add(user)
+        await db.flush()
 
     plain = secrets.token_urlsafe(32)
     db.add(EmailVerificationToken(
@@ -83,7 +124,7 @@ async def register(db: AsyncSession, name: str, email: str, password: str) -> No
         f"<p><a href='{verify_url}'>{verify_url}</a></p>"
         f"<p>連結 24 小時內有效。</p>"
     )
-    await _send_email(email, "PaintLearn — 請驗證您的 Email", body)
+    await _send_email(email, "易木 YIIMUI — 請驗證您的 Email", body)
 
 
 async def login(
@@ -170,7 +211,7 @@ async def resend_verification(db: AsyncSession, email: str) -> None:
             f"<p><a href='{verify_url}'>{verify_url}</a></p>"
             f"<p>連結 24 小時內有效。</p>"
         )
-        await _send_email(email, "PaintLearn — 重新驗證您的 Email", body)
+        await _send_email(email, "易木 YIIMUI — 重新驗證您的 Email", body)
 
 
 async def forgot_password(db: AsyncSession, email: str, admin_only: bool = False) -> None:
@@ -202,7 +243,7 @@ async def forgot_password(db: AsyncSession, email: str, admin_only: bool = False
             f"<p><a href='{reset_url}'>{reset_url}</a></p>"
             f"<p>連結 1 小時內有效。</p>"
         )
-        await _send_email(email, "PaintLearn — 重設密碼", body)
+        await _send_email(email, "易木 YIIMUI — 重設密碼", body)
 
 
 async def cleanup_unverified_users(db: AsyncSession, grace_hours: int = 25) -> int:

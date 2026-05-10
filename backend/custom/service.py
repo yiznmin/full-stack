@@ -308,7 +308,7 @@ async def create_custom_request(
     user = user_result.scalar_one()
     await _send_email(
         to=user.email,
-        subject="【PaintLearn】客製申請已收到",
+        subject="【易木 YIIMUI】客製申請已收到",
         html=(
             f"<p>您的客製申請已收到，預計 {reply_days} 個工作天內回覆報價。</p>"
             f"<p>申請編號：{req.id}</p>"
@@ -779,7 +779,7 @@ async def extend_quote(
     user = user_result.scalar_one()
     await _send_email(
         to=user.email,
-        subject="【PaintLearn】報價已延長",
+        subject="【易木 YIIMUI】報價已延長",
         html=f"<p>您已延長報價有效期至 {req.quote_expires_at.strftime('%Y-%m-%d %H:%M')}。</p>",
     )
 
@@ -926,7 +926,7 @@ async def admin_post_message(
     body_text = message or "（圖片訊息）請至客製申請頁查看"
     await _send_email(
         to=user.email,
-        subject="【PaintLearn】客製申請有新訊息",
+        subject="【易木 YIIMUI】客製申請有新訊息",
         html=f"<p>{body_text}</p>",
     )
 
@@ -1063,7 +1063,7 @@ async def admin_send_quote(
     quote_link = f"{settings.frontend_url}/customer-quote/{plain_token}"
     await _send_email(
         to=user.email,
-        subject="【PaintLearn】客製報價已送出",
+        subject="【易木 YIIMUI】客製報價已送出",
         html=(
             f"<p>您的客製申請 {request_id} 已完成報價。</p>"
             f"<p>報價金額：NT${float(quoted_price):.0f}</p>"
@@ -1259,7 +1259,7 @@ async def expire_quotes_async(db: AsyncSession) -> int:
         user = user_result.scalar_one()
         await _send_email(
             to=user.email,
-            subject="【PaintLearn】您的報價已逾期",
+            subject="【易木 YIIMUI】您的報價已逾期",
             html=f"<p>您的客製申請 {req.id} 報價已逾期，已自動取消。</p>",
         )
 

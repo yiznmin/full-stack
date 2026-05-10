@@ -321,7 +321,7 @@ async def _scan_preorders_and_upgrade(
         if user:
             pending_emails.append({
                 "to": user.email,
-                "subject": f"【PaintLearn】您的預購商品已備齊 {order.order_number}",
+                "subject": f"【易木 YIIMUI】您的預購商品已備齊 {order.order_number}",
                 "html": (
                     f"<p>您的訂單 {order.order_number} 中的預購商品已備齊，"
                     f"即將進入出貨流程。</p>"

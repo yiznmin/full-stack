@@ -902,7 +902,7 @@ async def create_order(
     user = user_result.scalar_one()
     await _send_email(
         to=user.email,
-        subject=f"【PaintLearn】訂單確認 {order_number}",
+        subject=f"【易木 YIIMUI】訂單確認 {order_number}",
         html=(
             f"<p>感謝您的訂單！訂單編號：{order_number}</p>"
             f"<p>應付金額：NT${float(total)}</p>"
@@ -1501,7 +1501,7 @@ async def admin_update_order_status(
             )
         await _send_email(
             to=user.email,
-            subject=f"【PaintLearn】付款確認 {order.order_number}",
+            subject=f"【易木 YIIMUI】付款確認 {order.order_number}",
             html=f"<p>您的訂單 {order.order_number} 已確認付款，開始準備生產。</p>",
         )
 
@@ -1512,7 +1512,7 @@ async def admin_update_order_status(
     elif target == OrderStatusEnum.refund_processing:
         await _send_email(
             to=user.email,
-            subject=f"【PaintLearn】退款處理中 {order.order_number}",
+            subject=f"【易木 YIIMUI】退款處理中 {order.order_number}",
             html=f"<p>您的訂單 {order.order_number} 退款申請已受理，請耐心等待。</p>",
         )
 
@@ -1525,7 +1525,7 @@ async def admin_update_order_status(
         await _revert_order_effects(db, order)
         await _send_email(
             to=user.email,
-            subject=f"【PaintLearn】訂單取消 {order.order_number}",
+            subject=f"【易木 YIIMUI】訂單取消 {order.order_number}",
             html=f"<p>您的訂單 {order.order_number} 已由管理員取消。</p>",
         )
 
@@ -1674,7 +1674,7 @@ async def create_shipment(
 
     await _send_email(
         to=user.email,
-        subject=f"【PaintLearn】出貨通知 {order.order_number}",
+        subject=f"【易木 YIIMUI】出貨通知 {order.order_number}",
         html=(
             f"<p>您的訂單 {order.order_number} 已出貨。</p>"
             f"<p>追蹤號：{tracking_number}</p>"
@@ -1883,7 +1883,7 @@ async def update_production_progress(
         label = "開始製作" if new_status == "manufacturing" else "準備出貨"
         await _send_email(
             to=user.email,
-            subject=f"【PaintLearn】生產進度更新 {order.order_number}",
+            subject=f"【易木 YIIMUI】生產進度更新 {order.order_number}",
             html=(
                 f"<p>您的訂單 {order.order_number} 中"
                 f" {order_item.product_title_snapshot} {label}。</p>"
@@ -1960,7 +1960,7 @@ async def process_refund(
     refund_type = "全額退款" if is_full_refund else "部分退款"
     await _send_email(
         to=user.email,
-        subject=f"【PaintLearn】{refund_type}通知 {order.order_number}",
+        subject=f"【易木 YIIMUI】{refund_type}通知 {order.order_number}",
         html=(
             f"<p>您的訂單 {order.order_number} 已完成{refund_type}。</p>"
             f"<p>退款金額：NT${refund_amount}</p>"
@@ -2014,7 +2014,7 @@ async def flag_payment_submission(
     note_html = f"<p>備注：{admin_note}</p>" if admin_note else ""
     await _send_email(
         to=user.email,
-        subject=f"【PaintLearn】{subject_prefix}付款資訊有誤 {order.order_number}",
+        subject=f"【易木 YIIMUI】{subject_prefix}付款資訊有誤 {order.order_number}",
         html=(
             f"<p>您的訂單 {order.order_number} 付款資訊有誤，請重新提交。</p>"
             f"{note_html}"
@@ -2085,7 +2085,7 @@ async def handle_ecpay_webhook(db: AsyncSession, payload: dict) -> str:
                 user = user_result.scalar_one()
                 await _send_email(
                     to=user.email,
-                    subject=f"【PaintLearn】訂單完成 {order.order_number}",
+                    subject=f"【易木 YIIMUI】訂單完成 {order.order_number}",
                     html=(
                         f"<p>您的訂單 {order.order_number} 已完成投遞，謝謝您的購買！</p>"
                         f"<p>感謝您獲得回饋券，請至會員中心查看。</p>"

@@ -61,7 +61,7 @@ async def _check_payment_expired_async():
                 if user:
                     await _send_email(
                         to=user.email,
-                        subject=f"【PaintLearn】訂單付款逾期 {locked_order.order_number}",
+                        subject=f"【易木 YIIMUI】訂單付款逾期 {locked_order.order_number}",
                         html=(
                             f"<p>您的訂單 {locked_order.order_number}"
                             " 已超過付款期限，訂單已取消。</p>"

@@ -55,10 +55,74 @@ async def test_register_success(client: AsyncClient, db):
 
 
 @pytest.mark.asyncio
-async def test_register_duplicate_email(client: AsyncClient, db):
+async def test_register_duplicate_verified_email_blocked(client: AsyncClient, db):
+    """已驗證的 email 不可重註冊 — 報 409。"""
     await client.post(REGISTER_URL, json=VALID_USER)
+    # 手動把 user 標為已驗證
+    result = await db.execute(select(User).where(User.email == VALID_USER["email"]))
+    user = result.scalar_one()
+    user.is_email_verified = True
+    await db.commit()
+
     res = await client.post(REGISTER_URL, json=VALID_USER)
     assert res.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_register_unverified_email_overwrites(client: AsyncClient, db):
+    """未驗證 user 重註冊同 email — 應回 201、覆蓋 password、廢舊 token、發新驗證信。
+
+    回歸測試 — 修補「user 註冊但沒驗證 → 卡死無法再註冊」的 bug。
+    """
+    from auth.models import EmailVerificationToken, TokenTypeEnum
+
+    # 第一次註冊
+    res1 = await client.post(REGISTER_URL, json=VALID_USER)
+    assert res1.status_code == 201
+
+    result = await db.execute(select(User).where(User.email == VALID_USER["email"]))
+    user_before = result.scalar_one()
+    assert user_before.is_email_verified is False
+    user_id = user_before.id
+    old_password_hash = user_before.password_hash
+
+    # 找出第一次發的 token
+    tok_result = await db.execute(
+        select(EmailVerificationToken).where(
+            EmailVerificationToken.user_id == user_id,
+            EmailVerificationToken.token_type == TokenTypeEnum.signup,
+        )
+    )
+    old_token = tok_result.scalar_one()
+    assert old_token.used_at is None
+
+    # 第二次註冊（同 email、不同 name + password；name ≥ 4 字元 schema 限制）
+    new_user = {**VALID_USER, "name": "新名字測", "password": "NewPass123"}
+    res2 = await client.post(REGISTER_URL, json=new_user)
+    assert res2.status_code == 201
+
+    # user 仍是同一個（id 不變）— 沒重建記錄
+    await db.refresh(user_before)
+    assert user_before.id == user_id
+    # 但 name + password 已被覆蓋
+    assert user_before.name == "新名字測"
+    assert user_before.password_hash != old_password_hash
+    # 仍未驗證
+    assert user_before.is_email_verified is False
+
+    # 舊 token 被廢掉（used_at 不為 None）
+    await db.refresh(old_token)
+    assert old_token.used_at is not None
+
+    # 應該有新的 unused token
+    unused_tokens = await db.execute(
+        select(EmailVerificationToken).where(
+            EmailVerificationToken.user_id == user_id,
+            EmailVerificationToken.token_type == TokenTypeEnum.signup,
+            EmailVerificationToken.used_at == None,  # noqa: E711
+        )
+    )
+    assert unused_tokens.scalar_one_or_none() is not None
 
 
 @pytest.mark.asyncio
