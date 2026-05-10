@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { Loader2, MapPin, Store, Plus, Pencil, Trash2, Star } from 'lucide-vue-next'
+import { ArrowLeft, Loader2, MapPin, Store, Plus, Pencil, Trash2, Star } from 'lucide-vue-next'
+import SectionMasthead from '@/shared/components/SectionMasthead.vue'
 import * as profileApi from '../api'
 import type { ShippingProfile, ShippingProfileInput, ShippingType, ApiError } from '../api'
 import ShippingProfileForm from '../components/ShippingProfileForm.vue'
@@ -126,19 +127,27 @@ const SHIPPING_TYPE_LABEL: Record<ShippingType, string> = {
 
 <template>
   <main class="page">
-    <nav class="breadcrumb">
-      <RouterLink to="/profile">會員中心</RouterLink>
-      <span>/</span>
-      <span class="current">收件資料</span>
+    <RouterLink to="/profile" class="back-link">
+      <ArrowLeft :size="14" />
+      會員中心
+    </RouterLink>
+
+    <SectionMasthead
+      no="23"
+      chapter="Delivery"
+      title="收件資料"
+      caption="Shipping Profiles"
+    />
+
+    <nav class="sub-nav">
+      <RouterLink to="/profile" class="sub-link" exact-active-class="is-active">個人資料</RouterLink>
+      <RouterLink to="/profile/shipping" class="sub-link" active-class="is-active">收件資料</RouterLink>
+      <RouterLink to="/profile/coupons" class="sub-link" active-class="is-active">折扣券錢包</RouterLink>
     </nav>
 
-    <header class="head">
-      <span class="eyebrow">— Shipping Profiles —</span>
-      <h1 class="title">收件資料</h1>
-      <p class="lede">
-        管理常用的宅配地址與超商門市，結帳時可直接挑選。
-      </p>
-    </header>
+    <p class="lede">
+      管理常用的宅配地址與超商門市，結帳時可直接挑選。
+    </p>
 
     <div v-if="profilesQuery.isPending.value" class="loading">
       <Loader2 :size="22" />
@@ -241,47 +250,45 @@ const SHIPPING_TYPE_LABEL: Record<ShippingType, string> = {
 .page {
   max-width: 880px;
   margin: 0 auto;
-  padding: 56px 56px 96px;
+  padding: 32px 24px 96px;
 }
 
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
+.back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--color-ink-muted);
-  margin-bottom: 24px;
+  color: var(--color-ink-muted); text-decoration: none;
+  margin-bottom: 32px;
 }
-.breadcrumb a { color: inherit; text-decoration: none; transition: color 150ms; }
-.breadcrumb a:hover { color: var(--color-accent); }
-.breadcrumb .current { color: var(--color-ink-default); }
+.back-link:hover { color: var(--color-accent-deep); }
 
-.head { margin-bottom: 36px; }
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--color-fresh);
+.sub-nav {
+  display: flex; gap: 24px;
+  margin: 32px 0 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-line-subtle);
 }
-.title {
-  font-family: var(--font-cn-serif);
-  font-weight: 300;
-  font-size: 36px;
-  letter-spacing: 0.06em;
+.sub-link {
+  font-family: var(--font-cn-serif); font-weight: 300;
+  font-size: 14px; letter-spacing: 0.06em;
+  color: var(--color-ink-muted); text-decoration: none;
+  padding-bottom: 12px; margin-bottom: -13px;
+  border-bottom: 1px solid transparent;
+  transition: color 150ms, border-color 150ms;
+}
+.sub-link:hover { color: var(--color-accent-deep); }
+.sub-link.is-active {
   color: var(--color-ink-strong);
-  margin: 12px 0 8px;
+  border-bottom-color: var(--color-accent);
 }
+
 .lede {
   font-family: var(--font-cn-serif);
   font-weight: 300;
   font-size: 14px;
   line-height: 1.95;
   color: var(--color-ink-default);
-  margin: 0;
+  margin: 0 0 32px;
   letter-spacing: 0.04em;
 }
 
