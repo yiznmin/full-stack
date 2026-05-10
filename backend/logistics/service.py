@@ -495,9 +495,14 @@ def build_create_shipment_form(
         if not _re.fullmatch(r"09\d{8}", val):
             raise ValueError(f"{label}格式錯誤（需為 09xxxxxxxx）")
 
-    # https 強制只在 production 模式跑（dry-run / test 環境用 http://testserver 也放行）
-    if not settings.ecpay_dry_run and not server_reply_url.startswith("https://"):
-        raise ValueError("ServerReplyURL 需為 https")
+    # https 強制：dry-run + 明確 testserver / localhost 才放行，避免「prod 漏設
+    # ECPAY_DRY_RUN=False 但 server_reply_url 仍是 http」的 silent insecure 路徑。
+    is_safe_test_url = (
+        "testserver" in server_reply_url or "localhost" in server_reply_url
+    )
+    if not server_reply_url.startswith("https://"):
+        if not (settings.ecpay_dry_run and is_safe_test_url):
+            raise ValueError("ServerReplyURL 需為 https")
     if len(server_reply_url) > MAX_SERVER_REPLY_URL_LEN:
         raise ValueError("ServerReplyURL ≤ 200 字")
 

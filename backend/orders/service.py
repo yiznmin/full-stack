@@ -1156,6 +1156,7 @@ async def confirm_received(db: AsyncSession, user_id: UUID, order_id: UUID) -> O
         .where(Shipment.order_id == order_id)
         .values(status=ShipmentStatusEnum.delivered, delivered_at=datetime.now(UTC))
     )
+    # 此 update 後落到 confirm_received 後段，會 commit + publish status_changed
     order.status = OrderStatusEnum.completed
     order.completed_at = datetime.now(UTC)
 
@@ -1170,6 +1171,7 @@ async def confirm_received(db: AsyncSession, user_id: UUID, order_id: UUID) -> O
     )
     await db.commit()
     await db.refresh(order)
+    _publish_order_status_changed(order)  # SSE
     return order
 
 
@@ -1336,6 +1338,7 @@ async def cancel_order(
     )
     await db.commit()
     await db.refresh(order)
+    _publish_order_status_changed(order)  # SSE
     return order
 
 
@@ -1528,7 +1531,25 @@ async def admin_update_order_status(
 
     await db.commit()
     await db.refresh(order)
+
+    # SSE: 通知 customer 訂單狀態變化（admin 標 paid / cancelled / completed / refund 等）
+    _publish_order_status_changed(order)
     return order
+
+
+def _publish_order_status_changed(order: Order) -> None:
+    """SSE: 對該訂單訂閱者推 status_changed 事件（含完整關鍵欄位）。"""
+    try:
+        from orders.sse import hub  # noqa: PLC0415
+        hub.publish_to_customer(order.id, "status_changed", {
+            "order_id": str(order.id),
+            "status": order.status.value if hasattr(order.status, "value") else str(order.status),
+            "paid_at": order.paid_at.isoformat() if order.paid_at else None,
+            "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+            "refunded_at": order.refunded_at.isoformat() if order.refunded_at else None,
+        })
+    except Exception as e:  # noqa: BLE001
+        logger.warning("order SSE publish failed for %s: %s", order.id, e)
 
 
 async def create_shipment(
@@ -1662,6 +1683,18 @@ async def create_shipment(
 
     await db.commit()
     await db.refresh(shipment)
+    await db.refresh(order)
+    # SSE: 訂單已出貨 + 含 tracking
+    try:
+        from orders.sse import hub  # noqa: PLC0415
+        hub.publish_to_customer(order.id, "shipment_created", {
+            "order_id": str(order.id),
+            "status": order.status.value if hasattr(order.status, "value") else str(order.status),
+            "tracking_number": tracking_number,
+            "shipment_id": str(shipment.id),
+        })
+    except Exception as e:  # noqa: BLE001
+        logger.warning("order SSE publish (shipment) failed: %s", e)
     return shipment
 
 
@@ -2073,4 +2106,24 @@ async def handle_ecpay_webhook(db: AsyncSession, payload: dict) -> str:
         )
 
     await db.commit()
+
+    # SSE: 推 shipment 狀態變更給 customer
+    try:
+        from orders.sse import hub  # noqa: PLC0415
+        hub.publish_to_customer(shipment.order_id, "shipment_status_changed", {
+            "order_id": str(shipment.order_id),
+            "shipment_id": str(shipment.id),
+            "shipment_status": shipment.status.value if hasattr(shipment.status, "value") else str(shipment.status),
+            "rtn_code": rtn_code,
+            "rtn_msg": rtn_msg,
+        })
+        # 若觸發了 order 完成，順便推 status_changed
+        if str(rtn_code) == "3":
+            order_check = (await db.execute(
+                select(Order).where(Order.id == shipment.order_id)
+            )).scalar_one_or_none()
+            if order_check and order_check.status == OrderStatusEnum.completed:
+                _publish_order_status_changed(order_check)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("webhook SSE publish failed: %s", e)
     return "1|OK"

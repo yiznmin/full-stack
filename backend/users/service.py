@@ -80,6 +80,16 @@ async def request_email_change(
     if new_email == user.pending_email:
         raise ConflictError("此 Email 與待驗證的 Email 相同")
 
+    # TOCTOU 防護：用 advisory lock 序列化「同一 new_email」的 concurrent
+    # request（避免 user A + user B 同時搶 new@x.com 同 email 兩邊 pass uniqueness check）
+    import hashlib  # noqa: PLC0415
+    from sqlalchemy import text  # noqa: PLC0415
+    lock_key = int.from_bytes(
+        hashlib.sha256(new_email.lower().encode()).digest()[:8],
+        "big", signed=True,
+    )
+    await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": lock_key})
+
     result = await db.execute(
         select(User).where(
             (User.id != user.id)
@@ -183,9 +193,31 @@ async def resend_email_change_verification(
 
     必要條件：user.pending_email 必須有值（已 request 過）。
     行為：作廢舊 token + 簽新 token + 寄信至 pending_email。
+
+    Rate limit：60 秒內最多 1 次（防止 user spam 寄信）。
     """
     if not user.pending_email:
         raise BadRequestError("目前沒有待驗證的新 Email", code="NO_PENDING_EMAIL")
+
+    # Rate limit：查最近的 email_change token，60 秒內 created → 拒絕
+    RESEND_THROTTLE_SEC = 60
+    recent_token = (await db.execute(
+        select(EmailVerificationToken)
+        .where(
+            EmailVerificationToken.user_id == user.id,
+            EmailVerificationToken.token_type == TokenTypeEnum.email_change,
+            EmailVerificationToken.created_at > datetime.now(UTC) - timedelta(seconds=RESEND_THROTTLE_SEC),
+        )
+        .order_by(EmailVerificationToken.created_at.desc())
+    )).scalars().first()
+    if recent_token:
+        wait_sec = RESEND_THROTTLE_SEC - int(
+            (datetime.now(UTC) - recent_token.created_at).total_seconds()
+        )
+        raise BadRequestError(
+            f"請等候 {max(1, wait_sec)} 秒後再重新寄送",
+            code="RESEND_THROTTLED",
+        )
 
     # 作廢所有舊 email_change token
     await db.execute(

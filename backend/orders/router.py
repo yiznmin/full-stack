@@ -234,6 +234,45 @@ async def confirm_refund(
     await service.confirm_refund(db, current_user.id, order_id)
 
 
+# ── Customer SSE ──────────────────────────────────────────────────────────────
+
+
+@router.get("/orders/{order_id}/sse", response_model=None)
+async def customer_order_sse(
+    order_id: UUID,
+    current_user=Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """客戶訂閱訂單狀態變更（status_changed / shipment_created / shipment_status_changed）。
+
+    驗證 owner — 不能訂閱別人的訂單。連線維持直到客戶端斷開。
+    """
+    from fastapi.responses import StreamingResponse  # noqa: PLC0415
+
+    from orders.sse import hub as order_sse_hub  # noqa: PLC0415
+
+    # 驗 owner（service 內 raise 404 if not owner）
+    await service.get_order_detail(db, current_user.id, order_id)
+
+    queue = order_sse_hub.subscribe_customer(order_id)
+
+    async def event_generator():
+        try:
+            async for chunk in order_sse_hub.stream(queue):
+                yield chunk
+        finally:
+            order_sse_hub.unsubscribe_customer(order_id, queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 # ── Admin orders ──────────────────────────────────────────────────────────────
 
 @router.get("/admin/orders", response_model=AdminOrderListResponse)
