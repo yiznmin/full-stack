@@ -19,6 +19,9 @@ import { useOrderSse } from '../useOrderSse'
 import type { ApiError, UpdateShippingPayload } from '../api'
 import ShippingProfileForm from '@/features/profile/components/ShippingProfileForm.vue'
 import type { ShippingProfileInput } from '@/features/profile/api'
+import InfoDrawer from '@/features/info/InfoDrawer.vue'
+
+const refundInfoOpen = ref(false)
 
 const route = useRoute()
 const orderId = computed(() => String(route.params.id || ''))
@@ -370,6 +373,11 @@ function specSummary(spec: Record<string, unknown>): string {
             您的退款申請已受理，預計 5 個工作天內會匯回您的銀行帳戶。
             收到款項後請點下方按鈕確認。
           </p>
+          <button
+            type="button"
+            class="refund-policy-link"
+            @click="refundInfoOpen = true"
+          >了解退款政策 →</button>
         </div>
       </section>
 
@@ -389,6 +397,11 @@ function specSummary(spec: Record<string, unknown>): string {
           <p v-if="order.refund_confirmed_at" class="refund-confirmed">
             <Check :size="12" :stroke-width="2" /> 您已確認收到退款（{{ fmtDateTime(order.refund_confirmed_at) }}）
           </p>
+          <button
+            type="button"
+            class="refund-policy-link"
+            @click="refundInfoOpen = true"
+          >了解退款政策 →</button>
         </div>
         <button
           v-if="!order.refund_confirmed_at"
@@ -795,6 +808,14 @@ function specSummary(spec: Record<string, unknown>): string {
         </Transition>
       </Teleport>
     </template>
+
+    <InfoDrawer
+      :open="refundInfoOpen"
+      slug="refund_policy"
+      title="退款政策"
+      full-page-path="/refund-policy"
+      @close="refundInfoOpen = false"
+    />
   </main>
 </template>
 
@@ -864,6 +885,27 @@ function specSummary(spec: Record<string, unknown>): string {
 .refund-error {
   font-size: 12px; color: var(--color-state-danger);
   margin: 0 0 24px;
+}
+
+.refund-policy-link {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-accent);
+  padding-bottom: 2px;
+  transition: color 150ms, border-color 150ms;
+}
+.refund-policy-link:hover {
+  color: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
 }
 
 .refund-processing {

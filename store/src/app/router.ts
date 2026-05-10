@@ -34,6 +34,11 @@ import ShippingInfoPage from '@/features/pages/ShippingInfoPage.vue'
 import CustomProcessPage from '@/features/pages/CustomProcessPage.vue'
 import PricingPage from '@/features/pages/PricingPage.vue'
 import RefundPolicyPage from '@/features/pages/RefundPolicyPage.vue'
+import HelpHubPage from '@/features/pages/HelpHubPage.vue'
+import AboutPbnPage from '@/features/pages/AboutPbnPage.vue'
+import PaintingTipsPage from '@/features/pages/PaintingTipsPage.vue'
+import FaqPage from '@/features/pages/FaqPage.vue'
+import AboutBrandPage from '@/features/pages/AboutBrandPage.vue'
 import NotFoundPage from '@/shared/components/NotFoundPage.vue'
 import PaletteDebugPage from '@/features/dev/pages/PaletteDebugPage.vue'
 import BandPickerPage from '@/features/dev/pages/BandPickerPage.vue'
@@ -64,6 +69,11 @@ export const router = createRouter({
     { path: '/custom-process', name: 'custom-process', component: CustomProcessPage, meta: { layout: 'default' } },
     { path: '/pricing', name: 'pricing', component: PricingPage, meta: { layout: 'default' } },
     { path: '/refund-policy', name: 'refund-policy', component: RefundPolicyPage, meta: { layout: 'default' } },
+    { path: '/help', name: 'help', component: HelpHubPage, meta: { layout: 'default' } },
+    { path: '/about-pbn', name: 'about-pbn', component: AboutPbnPage, meta: { layout: 'default' } },
+    { path: '/painting-tips', name: 'painting-tips', component: PaintingTipsPage, meta: { layout: 'default' } },
+    { path: '/faq', name: 'faq', component: FaqPage, meta: { layout: 'default' } },
+    { path: '/about', name: 'about', component: AboutBrandPage, meta: { layout: 'default' } },
 
     // ── Auth required — DefaultLayout ────────────────────────────────────
     { path: '/cart', name: 'cart', component: CartPage, meta: { layout: 'default', requiresAuth: true } },

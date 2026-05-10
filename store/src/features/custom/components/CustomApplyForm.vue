@@ -311,6 +311,36 @@ onBeforeUnmount(() => {
           前往我的申請列表
         </RouterLink>
       </div>
+
+      <div class="next-steps">
+        <h4 class="next-title">接下來會發生什麼</h4>
+        <ol class="next-list">
+          <li>
+            <span class="next-no">01</span>
+            <div class="next-text">
+              <strong>製作初稿與報價</strong>
+              <span>1–3 個工作天，完成後 Email + 站內通知</span>
+            </div>
+          </li>
+          <li>
+            <span class="next-no">02</span>
+            <div class="next-text">
+              <strong>確認報價</strong>
+              <span>24 小時內回覆，可加入購物車或要求修改</span>
+            </div>
+          </li>
+          <li>
+            <span class="next-no">03</span>
+            <div class="next-text">
+              <strong>製作與出貨</strong>
+              <span>付款後 5–10 工作天完成、寄送</span>
+            </div>
+          </li>
+        </ol>
+        <RouterLink to="/custom-process" class="next-full">
+          看完整訂製流程 →
+        </RouterLink>
+      </div>
     </div>
 
     <form v-else class="form" @submit.prevent="submit">
@@ -536,6 +566,84 @@ onBeforeUnmount(() => {
 .success-state p { margin: 0 0 6px; font-size: 15px; color: var(--color-ink-default); line-height: 1.7; }
 .success-hint { font-size: 13px !important; color: var(--color-ink-muted) !important; }
 .success-actions { display: flex; gap: 12px; justify-content: center; margin-top: 24px; flex-wrap: wrap; }
+
+.next-steps {
+  margin-top: 40px;
+  padding-top: 32px;
+  border-top: 1px solid var(--color-line-subtle);
+  text-align: left;
+}
+.next-title {
+  font-family: var(--font-cn-serif);
+  font-weight: 300;
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  color: var(--color-ink-strong);
+  margin: 0 0 18px;
+  text-align: center;
+}
+.next-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.next-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--color-paper-canvas);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: var(--radius-xs);
+}
+.next-no {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 22px;
+  color: var(--color-accent);
+  line-height: 1;
+  width: 32px;
+  text-align: center;
+}
+.next-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.next-text strong {
+  font-family: var(--font-cn-serif);
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-strong);
+}
+.next-text span {
+  font-size: 12px;
+  color: var(--color-ink-muted);
+  letter-spacing: 0.02em;
+}
+.next-full {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-accent);
+  padding-bottom: 2px;
+  margin-top: 4px;
+}
+.next-full:hover {
+  color: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+}
 
 .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); background: var(--color-accent-deep); color: var(--color-paper-canvas); padding: 14px 24px; border-radius: var(--radius-sm); font-family: var(--font-cn-serif); font-size: 14px; letter-spacing: 0.04em; box-shadow: 0 8px 24px rgba(43, 36, 27, 0.18); z-index: 60; }
 .toast-enter-active, .toast-leave-active { transition: opacity 200ms, transform 200ms; }

@@ -40,7 +40,7 @@ watch(
             <RouterLink to="/custom/cases" class="panel-sublink">案例分享</RouterLink>
             <RouterLink to="/custom/about" class="panel-sublink">關於客製化服務</RouterLink>
           </div>
-          <RouterLink to="/size-guide" class="panel-link">尺寸指南</RouterLink>
+          <RouterLink to="/help" class="panel-link">購物說明</RouterLink>
         </nav>
 
         <div class="panel-divider" />

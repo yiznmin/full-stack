@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { Info } from 'lucide-vue-next'
+import InfoDrawer from '@/features/info/InfoDrawer.vue'
 import type { ProductVariant, Difficulty, Detail } from '../api'
 
 const props = defineProps<{
@@ -51,6 +53,8 @@ function selectSize(s: string) {
   selectedSize.value = s
   selectedDifficulty.value = null
 }
+
+const sizeGuideOpen = ref(false)
 function selectDifficulty(d: Difficulty) {
   if (!availableDifficulties.value.has(d)) return
   selectedDifficulty.value = d
@@ -83,6 +87,15 @@ watch(matchedVariant, (val) => emit('select', val), { immediate: true })
       <h4 class="step-label">
         <span class="step-num">01</span>
         畫布尺寸
+        <button
+          type="button"
+          class="info-trigger"
+          aria-label="查看尺寸對照"
+          @click="sizeGuideOpen = true"
+        >
+          <Info :size="13" />
+          <span>尺寸對照</span>
+        </button>
       </h4>
       <div class="chips">
         <button
@@ -118,6 +131,14 @@ watch(matchedVariant, (val) => emit('select', val), { immediate: true })
         >{{ DIFFICULTY_LABEL[d] }}</button>
       </div>
     </div>
+
+    <InfoDrawer
+      :open="sizeGuideOpen"
+      slug="size_guide"
+      title="尺寸指南"
+      full-page-path="/size-guide"
+      @close="sizeGuideOpen = false"
+    />
   </div>
 </template>
 
@@ -209,5 +230,32 @@ watch(matchedVariant, (val) => emit('select', val), { immediate: true })
   color: var(--color-ink-muted);
   letter-spacing: 0.04em;
   margin: 0;
+}
+
+.info-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--color-line-subtle);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms;
+}
+.info-trigger:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.info-trigger :deep(svg) {
+  stroke: currentColor;
+  stroke-width: 1.75;
+  fill: none;
 }
 </style>

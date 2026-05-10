@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
-import { Loader2, Trash2, Minus, Plus, ShoppingBag } from 'lucide-vue-next'
+import { Loader2, Trash2, Minus, Plus, ShoppingBag, Info } from 'lucide-vue-next'
+import InfoDrawer from '@/features/info/InfoDrawer.vue'
 import {
   useCartQuery,
   useUpdateCartItemMutation,
@@ -52,6 +53,8 @@ const freeShippingRemaining = computed(() => {
 const hasExpiredCustom = computed(() =>
   customItems.value.some((i) => i.quote_expired),
 )
+
+const shippingInfoOpen = ref(false)
 
 function isJobSpec(spec: CartItem['variant_spec']): spec is VariantSpec {
   return 'canvas_w_cm' in spec
@@ -255,7 +258,17 @@ function goCheckout() {
               <dd>NT$ {{ subtotal.toLocaleString() }}</dd>
             </div>
             <div class="row row-muted">
-              <dt>運費</dt>
+              <dt class="shipping-dt">
+                運費
+                <button
+                  type="button"
+                  class="row-info"
+                  aria-label="運費說明"
+                  @click="shippingInfoOpen = true"
+                >
+                  <Info :size="13" />
+                </button>
+              </dt>
               <dd>結帳時計算</dd>
             </div>
           </dl>
@@ -273,6 +286,14 @@ function goCheckout() {
         </div>
       </aside>
     </section>
+
+    <InfoDrawer
+      :open="shippingInfoOpen"
+      slug="shipping"
+      title="出貨流程"
+      full-page-path="/shipping-info"
+      @close="shippingInfoOpen = false"
+    />
   </main>
 </template>
 
@@ -655,6 +676,34 @@ function goCheckout() {
   margin: 0;
 }
 .summary-rows .row-muted dd { font-weight: 400; font-size: 12px; color: var(--color-ink-muted); }
+
+.shipping-dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.row-info {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 150ms, background 150ms;
+}
+.row-info:hover {
+  color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+.row-info :deep(svg) {
+  stroke: currentColor;
+  stroke-width: 1.75;
+  fill: none;
+}
 
 .checkout-btn {
   width: 100%;

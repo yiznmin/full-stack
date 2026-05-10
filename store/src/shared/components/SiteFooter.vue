@@ -19,17 +19,22 @@ import { RouterLink } from 'vue-router'
           <li><RouterLink to="/products">所有商品</RouterLink></li>
           <li><RouterLink to="/themes">主題瀏覽</RouterLink></li>
           <li><RouterLink to="/custom">客製照片</RouterLink></li>
-          <li><RouterLink to="/size-guide">尺寸指南</RouterLink></li>
         </ul>
       </div>
 
       <div class="footer-col">
         <h4 class="footer-heading">Service</h4>
         <ul>
-          <li><RouterLink to="/shipping-info">出貨流程</RouterLink></li>
-          <li><RouterLink to="/custom-process">訂製流程</RouterLink></li>
-          <li><RouterLink to="/refund-policy">退款政策</RouterLink></li>
+          <li><RouterLink to="/help" class="footer-strong">購物說明總覽</RouterLink></li>
+          <li><RouterLink to="/about-pbn">什麼是數字油畫</RouterLink></li>
+          <li><RouterLink to="/size-guide">尺寸指南</RouterLink></li>
           <li><RouterLink to="/pricing">報價參考</RouterLink></li>
+          <li><RouterLink to="/shipping-info">配送與付款</RouterLink></li>
+          <li><RouterLink to="/custom-process">訂製流程</RouterLink></li>
+          <li><RouterLink to="/refund-policy">退換貨政策</RouterLink></li>
+          <li><RouterLink to="/painting-tips">新手教學</RouterLink></li>
+          <li><RouterLink to="/faq">常見問題</RouterLink></li>
+          <li><RouterLink to="/about">關於易木</RouterLink></li>
         </ul>
       </div>
 
@@ -113,6 +118,12 @@ import { RouterLink } from 'vue-router'
   transition: color 150ms;
 }
 .footer-col a:hover { color: var(--color-paper-canvas); }
+
+.footer-strong {
+  color: var(--color-paper-canvas) !important;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
 
 .footer-bottom {
   max-width: 1440px;

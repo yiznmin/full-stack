@@ -169,7 +169,7 @@ const TAGS_LIMIT = 8
             <RouterLink to="/custom" class="mega-cta">客製化首頁 →</RouterLink>
           </div>
         </MegaMenu>
-        <RouterLink to="/size-guide" class="nav-link">尺寸指南</RouterLink>
+        <RouterLink to="/help" class="nav-link">購物說明</RouterLink>
       </nav>
 
       <SiteLogo size="md" />
