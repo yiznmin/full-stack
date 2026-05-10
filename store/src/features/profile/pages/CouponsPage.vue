@@ -44,7 +44,8 @@ const TAB_LABEL = {
     />
 
     <nav class="sub-nav">
-      <RouterLink to="/profile" class="sub-link" exact-active-class="is-active">個人資料</RouterLink>
+      <RouterLink to="/profile" class="sub-link" exact-active-class="is-active">概覽</RouterLink>
+      <RouterLink to="/profile/info" class="sub-link" active-class="is-active">個人資料</RouterLink>
       <RouterLink to="/profile/shipping" class="sub-link" active-class="is-active">收件資料</RouterLink>
       <RouterLink to="/profile/coupons" class="sub-link" active-class="is-active">折扣券錢包</RouterLink>
     </nav>

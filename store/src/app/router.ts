@@ -18,6 +18,7 @@ import CustomRequestListPage from '@/features/custom/pages/CustomRequestListPage
 import CustomRequestDetailPage from '@/features/custom/pages/CustomRequestDetailPage.vue'
 import QuotePage from '@/features/custom/pages/QuotePage.vue'
 import ProfilePage from '@/features/profile/pages/ProfilePage.vue'
+import ProfileInfoPage from '@/features/profile/pages/ProfileInfoPage.vue'
 import ShippingProfilesPage from '@/features/profile/pages/ShippingProfilesPage.vue'
 import CouponsPage from '@/features/profile/pages/CouponsPage.vue'
 import RegisterPage from '@/features/auth/pages/RegisterPage.vue'
@@ -73,6 +74,7 @@ export const router = createRouter({
     { path: '/custom/requests', name: 'custom-request-list', component: CustomRequestListPage, meta: { layout: 'default', requiresAuth: true } },
     { path: '/custom/requests/:id', name: 'custom-request-detail', component: CustomRequestDetailPage, meta: { layout: 'default', requiresAuth: true } },
     { path: '/profile', name: 'profile', component: ProfilePage, meta: { layout: 'default', requiresAuth: true } },
+    { path: '/profile/info', name: 'profile-info', component: ProfileInfoPage, meta: { layout: 'default', requiresAuth: true } },
     { path: '/profile/shipping', name: 'profile-shipping', component: ShippingProfilesPage, meta: { layout: 'default', requiresAuth: true } },
     { path: '/profile/coupons', name: 'profile-coupons', component: CouponsPage, meta: { layout: 'default', requiresAuth: true } },
 

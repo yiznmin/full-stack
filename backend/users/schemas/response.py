@@ -16,6 +16,15 @@ class UserProfileResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MemberStatsResponse(BaseModel):
+    """會員 dashboard 統計 — /users/me/stats 一次取齊。"""
+    orders_total: int
+    orders_completed: int
+    orders_pending_payment: int
+    available_coupons: int
+    custom_quote_pending: int
+
+
 class ShippingProfileResponse(BaseModel):
     id: UUID
     shipping_type: str

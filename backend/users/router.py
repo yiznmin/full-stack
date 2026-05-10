@@ -13,7 +13,11 @@ from users.schemas.request import (
     ShippingProfileRequest,
     UpdateProfileRequest,
 )
-from users.schemas.response import ShippingProfileResponse, UserProfileResponse
+from users.schemas.response import (
+    MemberStatsResponse,
+    ShippingProfileResponse,
+    UserProfileResponse,
+)
 
 router = APIRouter()
 
@@ -62,6 +66,15 @@ async def resend_email_change_verification(
     """重寄 pending_email 的驗證信（用戶說沒收到 / 想重新觸發）。"""
     await service.resend_email_change_verification(db, user)
     return MessageResponse(message="驗證信已重新寄出")
+
+
+@router.get("/users/me/stats", response_model=MemberStatsResponse, tags=["Users"])
+async def get_member_stats(
+    user=Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """會員 dashboard 統計：訂單數 / 完成數 / 待付款 / 可用券 / 待確認報價。"""
+    return await service.get_member_stats(db, user.id)
 
 
 # ── Shipping Profiles ──────────────────────────────────────────────────────────

@@ -120,6 +120,62 @@ async def request_email_change(
     await _send_email(new_email, "PaintLearn — 驗證您的新 Email", body)
 
 
+async def get_member_stats(db: AsyncSession, user_id: UUID) -> dict:
+    """會員 dashboard 用的統計 — 一次拿齊：訂單數 / 完成數 / 待付款 /
+    可用券數 / 待確認報價數。
+
+    取代多個 round-trip。所有 count 都是 user-bound（owner-only）。
+    """
+    from sqlalchemy import func as sa_func  # noqa: PLC0415
+
+    from custom.models import CustomRequest, CustomRequestStatusEnum  # noqa: PLC0415
+    from discount.models import UserCoupon  # noqa: PLC0415
+    from orders.models import Order, OrderStatusEnum  # noqa: PLC0415
+
+    # Orders
+    orders_total = (await db.execute(
+        select(sa_func.count(Order.id)).where(Order.user_id == user_id)
+    )).scalar() or 0
+    orders_completed = (await db.execute(
+        select(sa_func.count(Order.id)).where(
+            Order.user_id == user_id,
+            Order.status == OrderStatusEnum.completed,
+        )
+    )).scalar() or 0
+    orders_pending_payment = (await db.execute(
+        select(sa_func.count(Order.id)).where(
+            Order.user_id == user_id,
+            Order.status == OrderStatusEnum.pending_payment,
+        )
+    )).scalar() or 0
+
+    # Available coupons（未過期 + 未使用）
+    now = datetime.now(UTC)
+    available_coupons = (await db.execute(
+        select(sa_func.count(UserCoupon.id)).where(
+            UserCoupon.user_id == user_id,
+            UserCoupon.is_used.is_(False),
+            (UserCoupon.expires_at.is_(None)) | (UserCoupon.expires_at > now),
+        )
+    )).scalar() or 0
+
+    # 待確認的報價
+    custom_quote_pending = (await db.execute(
+        select(sa_func.count(CustomRequest.id)).where(
+            CustomRequest.user_id == user_id,
+            CustomRequest.status == CustomRequestStatusEnum.quote_sent,
+        )
+    )).scalar() or 0
+
+    return {
+        "orders_total": orders_total,
+        "orders_completed": orders_completed,
+        "orders_pending_payment": orders_pending_payment,
+        "available_coupons": available_coupons,
+        "custom_quote_pending": custom_quote_pending,
+    }
+
+
 async def resend_email_change_verification(
     db: AsyncSession, user: User,
 ) -> None:

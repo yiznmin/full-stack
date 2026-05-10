@@ -179,3 +179,17 @@ export async function resendEmailChangeVerification(): Promise<{ message: string
 export async function listUserCoupons(): Promise<UserCouponsListResponse> {
   return jsonRequest<UserCouponsListResponse>('/users/me/coupons')
 }
+
+// ── Member dashboard stats ──────────────────────────────────────────────────
+
+export interface MemberStats {
+  orders_total: number
+  orders_completed: number
+  orders_pending_payment: number
+  available_coupons: number
+  custom_quote_pending: number
+}
+
+export async function fetchMemberStats(): Promise<MemberStats> {
+  return jsonRequest<MemberStats>('/users/me/stats')
+}
