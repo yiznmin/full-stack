@@ -24,6 +24,7 @@ class SeriesCreateRequest(BaseModel):
     description: str | None = None
     theme_id: UUID | None = None
     is_featured: bool = False
+    sample_cover_image_url: str | None = None
 
 
 class SeriesUpdateRequest(BaseModel):
@@ -31,6 +32,7 @@ class SeriesUpdateRequest(BaseModel):
     description: str | None = None
     theme_id: UUID | None = None
     is_featured: bool = False
+    sample_cover_image_url: str | None = None
 
 
 class TagCreateRequest(BaseModel):

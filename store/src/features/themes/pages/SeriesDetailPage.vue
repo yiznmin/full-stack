@@ -139,8 +139,19 @@ const otherSeriesTitle = computed(() =>
 
     </header>
 
-    <!-- 全寬 magazine mosaic — 4 格不對稱（左 tall · 中上 wide · 中下 wide · 右 tall） -->
-    <section class="mosaic" aria-label="系列雜誌拼貼">
+    <!-- 系列有自訂 cover → 全幅 hero banner（admin 上傳 sample_cover_image_url）-->
+    <section v-if="series.sample_cover_image_url" class="hero-banner" aria-label="系列封面">
+      <img
+        :src="series.sample_cover_image_url"
+        :alt="series.name"
+        class="hero-banner-img"
+        loading="lazy"
+      />
+      <div class="hero-banner-veil"></div>
+    </section>
+
+    <!-- 沒自訂 cover → 全寬 magazine mosaic 用商品圖拼貼 fallback -->
+    <section v-else class="mosaic" aria-label="系列雜誌拼貼">
       <template v-for="(p, idx) in heroCells" :key="idx">
         <RouterLink
           v-if="p"
@@ -408,6 +419,35 @@ const otherSeriesTitle = computed(() =>
   transition: color 150ms;
 }
 .meta-theme:hover { color: var(--color-accent-deep); }
+
+/* ── Hero banner (系列有自訂 cover 時) ── */
+.hero-banner {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 21 / 9;
+  margin: 0 0 56px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-paper-deep);
+}
+.hero-banner-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.hero-banner-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 50%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+}
+@media (max-width: 767px) {
+  .hero-banner { aspect-ratio: 16 / 10; margin-bottom: 32px; }
+}
 
 /* ── Mosaic (全寬 magazine 4 格不對稱) ── */
 .mosaic {

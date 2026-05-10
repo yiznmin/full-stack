@@ -219,6 +219,7 @@ async def create_series(
     description: str | None,
     theme_id: UUID | None = None,
     is_featured: bool = False,
+    sample_cover_image_url: str | None = None,
 ) -> dict:
     existing = await db.execute(select(ProductSeries).where(ProductSeries.name == name))
     if existing.scalar_one_or_none():
@@ -230,6 +231,7 @@ async def create_series(
         description=description,
         theme_id=theme_id,
         is_featured=is_featured,
+        sample_cover_image_url=sample_cover_image_url,
     )
     db.add(series)
     await db.commit()
@@ -248,6 +250,7 @@ async def update_series(
     description: str | None,
     theme_id: UUID | None = None,
     is_featured: bool = False,
+    sample_cover_image_url: str | None = None,
 ) -> dict:
     series = await _get_series_or_404(db, series_id)
     dup = await db.execute(
@@ -261,6 +264,7 @@ async def update_series(
     series.description = description
     series.theme_id = theme_id
     series.is_featured = is_featured
+    series.sample_cover_image_url = sample_cover_image_url
     await db.commit()
     await db.refresh(series)
     count_result = await db.execute(
@@ -1367,5 +1371,6 @@ async def public_get_series(db: AsyncSession, series_id: UUID) -> dict:
         "theme_id": series_row.theme_id,
         "theme_name": theme_name,
         "is_featured": series_row.is_featured,
+        "sample_cover_image_url": series_row.sample_cover_image_url,
         "products": items,
     }

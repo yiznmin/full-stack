@@ -65,6 +65,9 @@ class ProductSeries(Base):
         server_default=text("false"),
         default=False,
     )
+    # 系列封面圖（admin 上傳）— 用於 SeriesDetailPage hero
+    # 沒設時前端 fallback 到第一個 product 的 cover_image_url
+    sample_cover_image_url = Column(String, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 

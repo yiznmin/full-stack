@@ -46,6 +46,7 @@ async def health():
     return {"status": "ok"}
 
 
+from admin.dashboard import router as admin_dashboard_router
 from admin.router import router as admin_router
 from auth.router import router as auth_router
 from color.router import router as color_router
@@ -66,6 +67,7 @@ from users.router import router as users_router
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(admin_dashboard_router, prefix="/api/v1")
 app.include_router(production_router, prefix="/api/v1")
 app.include_router(upload_router, prefix="/api/v1")
 app.include_router(color_router, prefix="/api/v1")

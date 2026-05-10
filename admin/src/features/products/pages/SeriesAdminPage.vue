@@ -19,6 +19,7 @@ import {
 import type { Series } from '../api'
 import ProductsTabs from '../components/ProductsTabs.vue'
 import ThemePicker from '../components/ThemePicker.vue'
+import ProductCoverUpload from '../components/ProductCoverUpload.vue'
 
 const { data: series, isLoading } = useSeriesQuery()
 const createMut = useCreateSeriesMutation()
@@ -31,6 +32,7 @@ const formName = ref('')
 const formDesc = ref('')
 const formThemeId = ref<string | null>(null)
 const formIsFeatured = ref(false)
+const formCover = ref('')
 
 function openCreate() {
   editing.value = null
@@ -38,6 +40,7 @@ function openCreate() {
   formDesc.value = ''
   formThemeId.value = null
   formIsFeatured.value = false
+  formCover.value = ''
   dialogOpen.value = true
 }
 
@@ -47,6 +50,7 @@ function openEdit(s: Series) {
   formDesc.value = s.description ?? ''
   formThemeId.value = s.theme_id
   formIsFeatured.value = s.is_featured
+  formCover.value = s.sample_cover_image_url ?? ''
   dialogOpen.value = true
 }
 
@@ -58,6 +62,7 @@ async function submit() {
     description: formDesc.value.trim() || null,
     theme_id: formThemeId.value,
     is_featured: formIsFeatured.value,
+    sample_cover_image_url: formCover.value.trim() || null,
   }
   try {
     if (editing.value) {
@@ -80,6 +85,7 @@ async function quickToggleFeatured(s: Series) {
         description: s.description,
         theme_id: s.theme_id,
         is_featured: !s.is_featured,
+        sample_cover_image_url: s.sample_cover_image_url,
       },
     })
   } catch (e) {
@@ -217,6 +223,13 @@ async function handleDelete(s: Series) {
           />
           <span>設為精選系列（store 端「精選系列」入口會顯示）</span>
         </label>
+      </div>
+      <div>
+        <Label>系列封面（選填，用於 store SeriesDetailPage hero）</Label>
+        <ProductCoverUpload v-model="formCover" />
+        <p class="text-[11px] text-ink-muted mt-1.5 leading-[1.6]">
+          沒設時前端會 fallback 到第一個商品的封面圖。
+        </p>
       </div>
     </div>
     <template #footer>

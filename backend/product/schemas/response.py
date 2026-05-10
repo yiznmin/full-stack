@@ -34,6 +34,7 @@ class SeriesResponse(BaseModel):
     theme_id: UUID | None
     theme_name: str | None
     is_featured: bool
+    sample_cover_image_url: str | None = None
     product_count: int
     created_at: datetime
 
@@ -313,4 +314,5 @@ class PublicSeriesDetailResponse(BaseModel):
     theme_id: UUID | None
     theme_name: str | None
     is_featured: bool
+    sample_cover_image_url: str | None = None
     products: list[PublicProductBrief]   # 依 series_order ASC 排

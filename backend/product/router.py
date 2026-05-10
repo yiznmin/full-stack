@@ -221,7 +221,8 @@ async def create_series(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.create_series(
-        db, body.name, body.description, body.theme_id, body.is_featured
+        db, body.name, body.description, body.theme_id, body.is_featured,
+        sample_cover_image_url=body.sample_cover_image_url,
     )
 
 
@@ -233,7 +234,8 @@ async def update_series(
     db: AsyncSession = Depends(get_db),
 ):
     return await service.update_series(
-        db, series_id, body.name, body.description, body.theme_id, body.is_featured
+        db, series_id, body.name, body.description, body.theme_id, body.is_featured,
+        sample_cover_image_url=body.sample_cover_image_url,
     )
 
 

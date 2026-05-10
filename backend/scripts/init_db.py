@@ -105,6 +105,12 @@ async def init_schema() -> None:
                 "ALTER TABLE custom_requests "
                 "ADD COLUMN IF NOT EXISTS display_consent BOOLEAN NOT NULL DEFAULT FALSE"
             ))
+            # 系列封面圖 — admin 上傳，給 SeriesDetailPage hero 用
+            # 對應 migration q7l8m9n0o1p2_series_sample_cover
+            await conn.execute(text(
+                "ALTER TABLE product_series "
+                "ADD COLUMN IF NOT EXISTS sample_cover_image_url VARCHAR"
+            ))
 
             # Backfill：已有 shipment 的訂單視為「已確認出貨資訊」（之前無此欄位的歷史訂單）
             print("[init_db] backfilling shipping_locked for shipped orders ...", flush=True)

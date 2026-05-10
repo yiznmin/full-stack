@@ -97,6 +97,7 @@ export interface SeriesDetail {
   theme_id: string | null
   theme_name: string | null
   is_featured: boolean
+  sample_cover_image_url: string | null
   products: SeriesProductBrief[]
 }
 

@@ -145,6 +145,7 @@ export interface Series {
   theme_id: string | null
   theme_name: string | null
   is_featured: boolean
+  sample_cover_image_url: string | null
   product_count?: number
 }
 
@@ -313,6 +314,7 @@ export interface SeriesPayload {
   description: string | null
   theme_id: string | null
   is_featured: boolean
+  sample_cover_image_url: string | null
 }
 
 export async function listSeries(themeId?: string): Promise<Series[]> {
