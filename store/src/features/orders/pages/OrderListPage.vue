@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Loader2, ShoppingBag } from 'lucide-vue-next'
+import { ArrowLeft, Loader2, ShoppingBag } from 'lucide-vue-next'
+import SectionMasthead from '@/shared/components/SectionMasthead.vue'
 import { useOrdersQuery, STATUS_LABEL, STATUS_TAB } from '../queries'
 
 type Tab = 'unpaid' | 'shipping' | 'done'
@@ -48,17 +49,17 @@ const TAB_AUX: Record<Tab, string> = {
 
 <template>
   <main class="page">
-    <nav class="breadcrumb">
-      <RouterLink to="/profile">會員中心</RouterLink>
-      <span>/</span>
-      <span class="current">我的訂單</span>
-    </nav>
+    <RouterLink to="/profile" class="back-link">
+      <ArrowLeft :size="14" />
+      會員中心
+    </RouterLink>
 
-    <header class="head">
-      <span class="eyebrow">— Orders —</span>
-      <h1 class="title">我的訂單</h1>
-      <p v-if="totalCount > 0" class="meta">共 {{ totalCount }} 筆</p>
-    </header>
+    <SectionMasthead
+      no="08"
+      chapter="Orders"
+      title="我的訂單"
+      :caption="totalCount > 0 ? `${totalCount} 筆` : 'My Orders'"
+    />
 
     <!-- Tabs -->
     <nav class="tabs">
@@ -124,49 +125,20 @@ const TAB_AUX: Record<Tab, string> = {
 .page {
   max-width: 880px;
   margin: 0 auto;
-  padding: 56px 56px 96px;
+  padding: 32px 24px 96px;
 }
 
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
+.back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--color-ink-muted);
-  margin-bottom: 24px;
+  color: var(--color-ink-muted); text-decoration: none;
+  margin-bottom: 32px;
 }
-.breadcrumb a { color: inherit; text-decoration: none; transition: color 150ms; }
-.breadcrumb a:hover { color: var(--color-accent); }
-.breadcrumb .current { color: var(--color-ink-default); }
-
-.head { margin-bottom: 36px; }
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--color-fresh);
-}
-.title {
-  font-family: var(--font-cn-serif);
-  font-weight: 300;
-  font-size: 36px;
-  letter-spacing: 0.06em;
-  color: var(--color-ink-strong);
-  margin: 12px 0 8px;
-}
-.meta {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  color: var(--color-ink-muted);
-  margin: 0;
-}
+.back-link:hover { color: var(--color-accent-deep); }
 
 .tabs {
+  margin-top: 36px;
   display: flex;
   gap: 8px;
   margin-bottom: 32px;

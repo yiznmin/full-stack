@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { Loader2, Check, Copy, Package, AlertCircle, X, Truck } from 'lucide-vue-next'
+import { ArrowLeft, Loader2, Check, Copy, Package, AlertCircle, X, Truck } from 'lucide-vue-next'
 import {
   useOrderDetailQuery,
   useSubmitPaymentMutation,
@@ -272,11 +272,10 @@ function specSummary(spec: Record<string, unknown>): string {
 
 <template>
   <main class="page">
-    <nav class="breadcrumb">
-      <RouterLink to="/orders">我的訂單</RouterLink>
-      <span>/</span>
-      <span class="current">{{ order?.order_number ?? '訂單詳情' }}</span>
-    </nav>
+    <RouterLink to="/orders" class="back-link">
+      <ArrowLeft :size="14" />
+      我的訂單
+    </RouterLink>
 
     <div v-if="orderQuery.isPending.value" class="loading">
       <Loader2 :size="22" />
@@ -713,20 +712,14 @@ function specSummary(spec: Record<string, unknown>): string {
   padding: 56px 56px 96px;
 }
 
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
+.back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--color-ink-muted);
-  margin-bottom: 24px;
+  color: var(--color-ink-muted); text-decoration: none;
+  margin-bottom: 32px;
 }
-.breadcrumb a { color: inherit; text-decoration: none; transition: color 150ms; }
-.breadcrumb a:hover { color: var(--color-accent); }
-.breadcrumb .current { color: var(--color-ink-default); }
+.back-link:hover { color: var(--color-accent-deep); }
 
 .loading {
   display: flex;
