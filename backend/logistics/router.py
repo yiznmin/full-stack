@@ -142,13 +142,14 @@ async def _probe_home_subtype(
 
 
 @router.get("/probe-subtypes")
-async def probe_subtypes(request: Request) -> dict:
-    """⚠️ 暫時 diagnostic — 用當前 env 的 MerchantID/HashKey 對 ECpay 試各 SubType，回報哪些已開通。
+async def probe_subtypes(
+    request: Request,
+    _admin=Depends(require_admin),
+) -> dict:
+    """Admin diagnostic — 對 ECpay 試各 SubType，回報哪些已開通。
 
     CVS：用 /Express/map 試
     HOME：用 /Express/Create 試
-
-    僅供 user 確認自己 ECpay 帳號開通了哪些物流方式。正式上線前要刪除此 endpoint。
     """
     if not settings.ecpay_merchant_id:
         return {"error": "ECPAY_MERCHANT_ID 未設定"}
@@ -181,11 +182,11 @@ async def probe_subtypes(request: Request) -> dict:
 
 
 @router.get("/debug-config")
-async def debug_config(request: Request) -> dict:
-    """⚠️ 暫時 diagnostic，正式上線前要刪除。
-
-    回傳當前 ECpay 設定狀態（HashKey/HashIV 遮罩），用來驗證 Railway env var 是否正確注入。
-    """
+async def debug_config(
+    request: Request,
+    _admin=Depends(require_admin),
+) -> dict:
+    """Admin diagnostic — 回傳當前 ECpay 設定狀態（HashKey/HashIV 遮罩），驗證 env var 注入。"""
     return {
         "merchant_id": settings.ecpay_merchant_id or "(empty)",
         "hash_key_masked": _mask(settings.ecpay_hash_key),
