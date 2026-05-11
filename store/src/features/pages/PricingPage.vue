@@ -56,10 +56,14 @@ const isError = computed(
   () => canvasQuery.isError.value || pricesQuery.isError.value,
 )
 
-// 規格化 + 排序尺寸（依面積由小到大）
+// 規格化 + 排序尺寸（依面積由小到大）— 只保留 custom_photo_prices 有對應資料的尺寸
 const canvasOptions = computed<CanvasSize[]>(() => {
   const items = canvasQuery.data.value?.items ?? []
-  return [...items].sort((a, b) => a.canvas_w_cm * a.canvas_h_cm - b.canvas_w_cm * b.canvas_h_cm)
+  const prices = pricesQuery.data.value?.items ?? []
+  const sizesWithPrices = new Set(prices.map((p) => `${p.canvas_w}x${p.canvas_h}`))
+  return items
+    .filter((c) => sizesWithPrices.has(`${c.canvas_w_cm}x${c.canvas_h_cm}`))
+    .sort((a, b) => a.canvas_w_cm * a.canvas_h_cm - b.canvas_w_cm * b.canvas_h_cm)
 })
 
 // 已選尺寸（預設 30×40）
