@@ -7,7 +7,15 @@ import {
   ImagePlus, MessageSquare, CheckCircle2, Palette,
 } from 'lucide-vue-next'
 import SectionMasthead from '@/shared/components/SectionMasthead.vue'
+import { useSeo } from '@/shared/composables/useSeo'
 import { useCustomRequestListQuery } from '../queries'
+
+useSeo(() => ({
+  title: '客製化數字油畫｜上傳照片轉成手繪模板',
+  description:
+    '把家人合照、寵物、結婚照、旅行照變成可以慢慢畫的數字油畫。易木 YIIMUI 提供完整客製流程：上傳照片 → 報價 → 製作 → 寄送，附顏料、畫筆、畫布。',
+}))
+
 import { STATUS_LABEL, listCustomCases, DIFFICULTY_LABEL, type CustomCase, type Difficulty } from '../api'
 import CustomApplyForm from '../components/CustomApplyForm.vue'
 import CaseDetailDialog from '../components/CaseDetailDialog.vue'

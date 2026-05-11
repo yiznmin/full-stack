@@ -116,3 +116,17 @@ export const router = createRouter({
 })
 
 router.beforeEach(authGuard)
+
+// 每次切頁更新 canonical（SPA 不會自動換 head）— 預設指向當前 path，
+// 個別頁有需要可在 useSeo 內 override。
+router.afterEach((to) => {
+  const SITE_URL = 'https://yiimui.com'
+  const canonicalUrl = `${SITE_URL}${to.path}`
+  let link = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+  if (!link) {
+    link = document.createElement('link')
+    link.setAttribute('rel', 'canonical')
+    document.head.appendChild(link)
+  }
+  link.setAttribute('href', canonicalUrl)
+})

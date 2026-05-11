@@ -2,7 +2,15 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Loader2, SlidersHorizontal } from 'lucide-vue-next'
+import { useSeo } from '@/shared/composables/useSeo'
 import { useProductsQuery } from '../queries'
+
+useSeo(() => ({
+  title: '商品列表｜現成數字油畫',
+  description:
+    '瀏覽易木 YIIMUI 全部數字油畫商品 — 京都四季、寵物、風景、抽象等系列。可依難易度、尺寸、主題篩選，找到適合你的下一幅。',
+}))
+
 import { useSeriesQuery } from '@/features/browse/queries'
 import type {
   Difficulty,

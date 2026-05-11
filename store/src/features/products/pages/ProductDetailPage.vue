@@ -11,6 +11,7 @@ import ProductCard from '../components/ProductCard.vue'
 import { useAddCartItemMutation } from '@/features/cart/queries'
 import { useAuthStore } from '@/features/auth/store'
 import type { ApiError } from '@/features/cart/api'
+import { useSeo } from '@/shared/composables/useSeo'
 
 const route = useRoute()
 
@@ -57,6 +58,49 @@ const product = computed<ProductDetail | null>(() => {
 
 const isLoading = computed(() => !isPreview.value && detailQuery.isPending.value)
 const isError = computed(() => !isPreview.value && detailQuery.isError.value)
+
+// SEO — 每次 product 載入更新 title / og / JSON-LD Product schema
+useSeo(() => {
+  const p = product.value
+  if (!p) return {}
+  const activeVariants = p.variants.filter((v) => v.is_active)
+  const prices = activeVariants.map((v) => v.price)
+  const minPrice = prices.length ? Math.min(...prices) : 0
+  const maxPrice = prices.length ? Math.max(...prices) : 0
+  const offers = activeVariants.length === 0
+    ? undefined
+    : minPrice === maxPrice
+      ? {
+          '@type': 'Offer',
+          price: String(minPrice),
+          priceCurrency: 'TWD',
+          availability: activeVariants.every((v) => v.is_preorder)
+            ? 'https://schema.org/PreOrder'
+            : 'https://schema.org/InStock',
+        }
+      : {
+          '@type': 'AggregateOffer',
+          lowPrice: String(minPrice),
+          highPrice: String(maxPrice),
+          priceCurrency: 'TWD',
+          offerCount: activeVariants.length,
+        }
+  const shortDesc = p.description ? p.description.slice(0, 140) : `${p.title} — 易木 YIIMUI 數字油畫`
+  return {
+    title: p.title,
+    description: shortDesc,
+    ogImage: p.cover_image_url || undefined,
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: p.title,
+      description: shortDesc,
+      image: p.cover_image_url ? [p.cover_image_url] : undefined,
+      brand: { '@type': 'Brand', name: '易木 YIIMUI' },
+      ...(offers ? { offers } : {}),
+    } as Record<string, unknown>,
+  }
+})
 
 // Normalize images (response.images can be { items } or array)
 const productImages = computed<ProductImage[]>(() => {
