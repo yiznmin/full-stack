@@ -2,6 +2,7 @@
 import { RouterView } from 'vue-router'
 import SiteHeader from '@/shared/components/SiteHeader.vue'
 import SiteFooter from '@/shared/components/SiteFooter.vue'
+import ContactBubble from '@/shared/components/ContactBubble.vue'
 </script>
 
 <template>
@@ -11,6 +12,7 @@ import SiteFooter from '@/shared/components/SiteFooter.vue'
       <RouterView />
     </main>
     <SiteFooter />
+    <ContactBubble />
   </div>
 </template>
 
