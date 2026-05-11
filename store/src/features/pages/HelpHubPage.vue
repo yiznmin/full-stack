@@ -204,6 +204,9 @@ const POPULAR_QUESTIONS: FaqItem[] = [
       <a href="mailto:contact@yiimui.com" class="contact-mail">
         contact@yiimui.com
       </a>
+      <p class="contact-urgent">
+        緊急聯絡：<a href="mailto:yiimui.studio@gmail.com">yiimui.studio@gmail.com</a>
+      </p>
     </section>
   </main>
 </template>
@@ -389,6 +392,18 @@ const POPULAR_QUESTIONS: FaqItem[] = [
   color: var(--color-accent-deep);
   border-color: var(--color-accent-deep);
 }
+.contact-urgent {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--color-ink-muted);
+  letter-spacing: 0.04em;
+}
+.contact-urgent a {
+  color: var(--color-state-danger);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.contact-urgent a:hover { opacity: 0.75; }
 
 @media (max-width: 1023px) {
   .page { padding: 48px 32px 72px; }

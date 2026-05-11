@@ -194,7 +194,17 @@ const FLOW_STEPS = [
             <Mail :size="18" class="contact-icon" />
             <div class="contact-text">
               <strong>contact@yiimui.com</strong>
-              <span>Email 寄信</span>
+              <span>Email 寄信（主要聯絡管道）</span>
+            </div>
+            <span class="contact-arrow">→</span>
+          </a>
+        </li>
+        <li>
+          <a href="mailto:yiimui.studio@gmail.com" class="contact-row contact-row-link">
+            <Mail :size="18" class="contact-icon" />
+            <div class="contact-text">
+              <strong>yiimui.studio@gmail.com</strong>
+              <span>緊急聯絡（系統異常或主信箱無回時的備用管道）</span>
             </div>
             <span class="contact-arrow">→</span>
           </a>

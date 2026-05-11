@@ -157,6 +157,9 @@ function isOpen(g: number, i: number): boolean {
         <a href="mailto:contact@yiimui.com" class="contact-link">
           contact@yiimui.com →
         </a>
+        <a href="mailto:yiimui.studio@gmail.com" class="contact-link contact-link-urgent">
+          緊急聯絡 yiimui.studio@gmail.com →
+        </a>
       </div>
     </section>
   </main>
@@ -311,6 +314,11 @@ function isOpen(g: number, i: number): boolean {
   padding-bottom: 2px;
 }
 .contact-link:hover { color: var(--color-accent-deep); border-color: var(--color-accent-deep); }
+.contact-link-urgent {
+  color: var(--color-state-danger);
+  border-color: var(--color-state-danger);
+}
+.contact-link-urgent:hover { color: var(--color-state-danger); border-color: var(--color-state-danger); opacity: 0.75; }
 
 @media (max-width: 1023px) { .page { padding: 48px 32px 72px; } }
 @media (max-width: 767px) {
