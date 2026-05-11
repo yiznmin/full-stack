@@ -51,6 +51,10 @@ def generate_standard(
     canvas_h_cm: float,
     min_brush_diam_cm: float,
     min_ratio_multiplier: float = 1.0,
+    use_saliency: bool = True,
+    saliency_radius_px: int = 15,
+    saliency_weight_alpha: float = 3.0,
+    saliency_threshold_pct: float = 80.0,
 ) -> dict[str, Any]:
     """跑 standard 模式：KMeans → blur+prune → 合併小色塊 → 輸出 SVG / filled / palette。
 
@@ -86,6 +90,10 @@ def generate_standard(
         blur_sigma_color=blur_sigma_color,
         blur_sigma_space=blur_sigma_space,
         prune_iterations=prune_iterations,
+        use_saliency=use_saliency,
+        saliency_radius_px=saliency_radius_px,
+        saliency_weight_alpha=saliency_weight_alpha,
+        saliency_threshold_pct=saliency_threshold_pct,
     )
 
     # 4. 小色塊合併：幾何門檻（最大內切圓半徑） × 難易度倍數
@@ -170,6 +178,10 @@ def generate_sam_refine(
     min_brush_diam_cm: float,
     extra_colors: int,
     min_ratio_multiplier: float = 1.0,
+    use_saliency: bool = True,
+    saliency_radius_px: int = 15,
+    saliency_weight_alpha: float = 3.0,
+    saliency_threshold_pct: float = 80.0,
 ) -> dict[str, Any]:
     """sam_refine 模式：set_final_pbn 後對遮罩區域加做細化 K-Means。
 
@@ -213,6 +225,10 @@ def generate_sam_refine(
         blur_sigma_color=blur_sigma_color,
         blur_sigma_space=blur_sigma_space,
         prune_iterations=prune_iterations,
+        use_saliency=use_saliency,
+        saliency_radius_px=saliency_radius_px,
+        saliency_weight_alpha=saliency_weight_alpha,
+        saliency_threshold_pct=saliency_threshold_pct,
     )
     pbn.refine_region(mask_cropped, extra_colors=extra_colors)
 

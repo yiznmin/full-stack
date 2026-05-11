@@ -49,7 +49,7 @@ ENV PYTHONUNBUFFERED=1 \
 # 不用 git clone（Docker non-interactive 環境 git 對 GitHub 觸發 auth prompt 失敗）；
 # 改用 curl 抓 GitHub codeload tarball（純 HTTP，匿名可讀，無 auth 問題）。
 # commit hash 直接寫死於 RUN 內，避免 Docker ARG 展開不可預期的問題。
-RUN curl -fL "https://codeload.github.com/yiznmin/PaintingNumber/tar.gz/3e66ecebda1d6a5e6f4bf87e94adb237a19d55bf" \
+RUN curl -fL "https://codeload.github.com/yiznmin/PaintingNumber/tar.gz/6d96f1de28d71e8bb1c1cb6c89936df7d684d941" \
         -o /tmp/pbn.tar.gz \
  && mkdir -p /tmp/pbn /app/paint-by-number \
  && tar -xzf /tmp/pbn.tar.gz -C /tmp/pbn --strip-components=1 \
