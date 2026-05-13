@@ -208,6 +208,76 @@ async def test_update_color_unauthenticated(client: AsyncClient, db):
     assert (await client.put(f"{COLORS_URL}/{uuid.uuid4()}", json=VALID_COLOR)).status_code == 401
 
 
+# ── PUT /admin/colors/{id} 部分更新（PATCH 語義） ──────────────────────────────
+# Regression：原本 UpdateColorRequest 把 code/name 列為必填，導致 admin 只想改
+# color_family 時前端只送 {name, color_family} 就 422。修成全欄位 optional +
+# model_fields_set 區分省略 vs 顯式 null。
+
+@pytest.mark.asyncio
+async def test_update_color_family_only(client: AsyncClient, db):
+    """只送 color_family（user 實際遇到的 case）→ 其他欄位保留原值。"""
+    color = await _create_color(client, db)
+    res = await client.put(
+        f"{COLORS_URL}/{color['id']}", json={"color_family": "green"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["color_family"] == "green"
+    # 其他欄位保留
+    assert body["code"] == VALID_COLOR["code"]
+    assert body["name"] == VALID_COLOR["name"]
+    assert body["stock_ml"] == VALID_COLOR["stock_ml"]
+
+
+@pytest.mark.asyncio
+async def test_update_color_stock_only(client: AsyncClient, db):
+    """只送 stock_ml → 其他保留。"""
+    color = await _create_color(client, db)
+    res = await client.put(f"{COLORS_URL}/{color['id']}", json={"stock_ml": 999.5})
+    assert res.status_code == 200
+    assert res.json()["stock_ml"] == 999.5
+    assert res.json()["color_family"] == VALID_COLOR["color_family"]
+
+
+@pytest.mark.asyncio
+async def test_update_color_clear_color_family_with_null(client: AsyncClient, db):
+    """顯式送 color_family=null → 清空該欄位（DB 該欄位 nullable）。"""
+    color = await _create_color(client, db)
+    res = await client.put(
+        f"{COLORS_URL}/{color['id']}", json={"color_family": None},
+    )
+    assert res.status_code == 200
+    assert res.json()["color_family"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_color_code_null_rejected(client: AsyncClient, db):
+    """code 是 NOT NULL，顯式送 code=null → 422。"""
+    color = await _create_color(client, db)
+    res = await client.put(f"{COLORS_URL}/{color['id']}", json={"code": None})
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_color_empty_body_rejected(client: AsyncClient, db):
+    """空 body → 422（避免無意義呼叫）。"""
+    color = await _create_color(client, db)
+    res = await client.put(f"{COLORS_URL}/{color['id']}", json={})
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_color_same_code_no_duplicate_check(client: AsyncClient, db):
+    """code 沒變時不該觸發查重（修前的 service 不論 code 有無都查，浪費一次 query）。"""
+    color = await _create_color(client, db)
+    # 送跟原本一樣的 code，不應 409
+    res = await client.put(
+        f"{COLORS_URL}/{color['id']}", json={"code": color["code"], "name": "RENAMED"},
+    )
+    assert res.status_code == 200
+    assert res.json()["name"] == "RENAMED"
+
+
 # ── PATCH /admin/colors/{id}/toggle-active ────────────────────────────────────
 
 @pytest.mark.asyncio

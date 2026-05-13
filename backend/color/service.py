@@ -80,15 +80,21 @@ async def create_color(
 
 
 async def update_color(db: AsyncSession, color_id: UUID, data: dict) -> PhysicalColor:
+    """部分更新：data 來自 UpdateColorRequest.model_dump(exclude_unset=True)，
+    只含使用者實際送來的欄位（PATCH 語義）。
+
+    code 變動時才查重；其他欄位（color_family / brand / stock_ml / name）獨立更新。
+    """
     color = await _get_or_404(db, color_id)
-    dup = await db.execute(
-        select(PhysicalColor).where(
-            PhysicalColor.code == data["code"],
-            PhysicalColor.id != color_id,
+    if "code" in data and data["code"] != color.code:
+        dup = await db.execute(
+            select(PhysicalColor).where(
+                PhysicalColor.code == data["code"],
+                PhysicalColor.id != color_id,
+            )
         )
-    )
-    if dup.scalar_one_or_none():
-        raise ConflictError(f"色號 {data['code']} 已被其他色條目使用")
+        if dup.scalar_one_or_none():
+            raise ConflictError(f"色號 {data['code']} 已被其他色條目使用")
     for k, v in data.items():
         setattr(color, k, v)
     await db.commit()

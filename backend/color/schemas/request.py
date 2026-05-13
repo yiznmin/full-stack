@@ -46,26 +46,50 @@ class CreateColorRequest(BaseModel):
 
 
 class UpdateColorRequest(BaseModel):
-    """更新實體色 metadata。RGB 校正必須走 PATCH /admin/colors/{id}/rgb（保留 audit trail）。"""
-    code: str
-    name: str
+    """部分更新實體色 metadata（PATCH 語義）。
+
+    所有欄位皆 optional —— 前端 EditColorDialog 只送有變動的欄位以避免不必要寫入。
+    RGB 校正必須走 PATCH /admin/colors/{id}/rgb（保留 audit trail）。
+
+    注意：欄位有提供時不可為空字串；未提供（None）= 不改該欄位。
+    """
+    code: str | None = None
+    name: str | None = None
     color_family: str | None = None
     brand: str | None = None
-    stock_ml: float = 0.0
+    stock_ml: float | None = None
 
     @field_validator("code", "name")
     @classmethod
-    def validate_not_empty(cls, v: str) -> str:
+    def validate_not_empty(cls, v: str | None) -> str | None:
+        # None = 不更新該欄位；有提供就必須非空白
+        if v is None:
+            return v
         if not v.strip():
             raise ValueError("不可為空白字串")
         return v
 
     @field_validator("stock_ml")
     @classmethod
-    def validate_stock(cls, v: float) -> float:
+    def validate_stock(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
         if v < 0:
             raise ValueError("stock_ml 不可為負數")
         return v
+
+    @model_validator(mode="after")
+    def validate_set_fields(self) -> "UpdateColorRequest":
+        # 用 model_fields_set 區分「省略」vs「顯式 null」：
+        # - 前端 undefined → 欄位不在 model_fields_set → 不改該欄位
+        # - 前端 null → 在 set 但值為 None → 顯式清空（只 color_family / brand 可清）
+        if not self.model_fields_set:
+            raise ValueError("至少需提供一個要更新的欄位")
+        # code / name / stock_ml 顯式設 null 不合法（DB NOT NULL）
+        for f in ("code", "name", "stock_ml"):
+            if f in self.model_fields_set and getattr(self, f) is None:
+                raise ValueError(f"{f} 不可設為 null")
+        return self
 
 
 class AddStockRequest(BaseModel):

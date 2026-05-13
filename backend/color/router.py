@@ -61,7 +61,8 @@ async def update_color(
     operator=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.update_color(db, color_id, body.model_dump())
+    # exclude_unset=True：只含使用者實際送來的欄位，省略的不會誤蓋掉 DB 值
+    return await service.update_color(db, color_id, body.model_dump(exclude_unset=True))
 
 
 @router.patch("/admin/colors/{color_id}/toggle-active", response_model=PhysicalColorResponse)
