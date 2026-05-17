@@ -745,6 +745,50 @@ async def test_list_available_jobs_excludes_existing_variant(client: AsyncClient
 
 
 @pytest.mark.asyncio
+async def test_list_available_jobs_unfinalized_uses_filled_template(client: AsyncClient, db):
+    """job 沒 filled_template_final_url → cover 來自 filled_template_url；is_finalized=False"""
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    job = await _create_approved_job(db)
+    job.filled_template_url = "gs://test-bucket/production_jobs/x/filled_template.png"
+    await db.commit()
+
+    res = await client.get("/api/v1/admin/production/jobs/available-for-variant")
+    items = res.json()["items"]
+    assert len(items) == 1
+    assert items[0]["is_finalized"] is False
+    # cover_url 用 _persistent_firebase_url 純字串轉換，不依賴 Firebase auth → 測試可靠
+    assert items[0]["cover_url"] is not None
+    assert "filled_template.png" in items[0]["cover_url"]
+    # 不該指向 _final
+    assert "filled_template_final" not in items[0]["cover_url"]
+
+
+@pytest.mark.asyncio
+async def test_list_available_jobs_finalized_prefers_final_filled(client: AsyncClient, db):
+    """job 已 finalize（有 filled_template_final_url）→ cover 用 final 版；is_finalized=True
+
+    Regression：之前永遠用 filled_template_url（演算法量化色版），導致商品封面跟塗色者
+    真正畫出來的色彩有差。修正後優先用實體色版。
+    """
+    await _make_admin(client, db)
+    await _login(client, ADMIN_USER["email"], ADMIN_USER["password"])
+    job = await _create_approved_job(db)
+    # 同時設兩個 url，模擬已 finalize 的 job
+    job.filled_template_url = "gs://test-bucket/production_jobs/x/filled_template.png"
+    job.filled_template_final_url = "gs://test-bucket/production_jobs/x/filled_template_final.png"
+    await db.commit()
+
+    res = await client.get("/api/v1/admin/production/jobs/available-for-variant")
+    items = res.json()["items"]
+    assert len(items) == 1
+    assert items[0]["is_finalized"] is True
+    # cover_url 應該指向 _final.png（_persistent_firebase_url 純字串組裝，保留 path）
+    assert items[0]["cover_url"] is not None
+    assert "filled_template_final" in items[0]["cover_url"]
+
+
+@pytest.mark.asyncio
 async def test_list_available_jobs_non_admin(client: AsyncClient, db):
     await _make_customer(client, db)
     await _login(client, CUSTOMER_USER["email"], CUSTOMER_USER["password"])

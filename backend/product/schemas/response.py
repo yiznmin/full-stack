@@ -163,6 +163,8 @@ class AvailableJobResponse(BaseModel):
     preview_url: str | None = None
     # 永久公開 URL（Firebase download URL）— 給「從製作任務選封面」寫入 cover_image_url
     cover_url: str | None = None
+    # 是否已 finalize（影響 preview_url / cover_url 來源：True=實體色版，False=演算法量化版）
+    is_finalized: bool = False
 
     model_config = {"from_attributes": True}
 

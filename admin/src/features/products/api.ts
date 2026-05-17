@@ -209,10 +209,13 @@ export interface AvailableJob {
   canvas_h_cm: number
   num_colors_used: number
   price_formula_base: number
-  /** 短期 signed URL — 只用於 picker 顯示縮圖（15 分鐘 TTL） */
+  /** 短期 signed URL — 只用於 picker 顯示縮圖（15 分鐘 TTL）。
+   *  已 finalize 的 job 是「實體色版」filled_template_final.png，否則是演算法量化版 */
   preview_url: string | null
-  /** 永久 Firebase 下載 URL — 寫入永久欄位（如 cover_image_url）用 */
+  /** 永久 Firebase 下載 URL — 寫入永久欄位（如 cover_image_url）用。同上優先級 */
   cover_url: string | null
+  /** 該 job 是否已完成顏色對應 finalize（決定上面兩個 url 的來源版本） */
+  is_finalized: boolean
 }
 
 /** 列出可作為新變體 production_job 的候選（已 approve、有色塊；可指定 product_id 排除已綁的）。 */

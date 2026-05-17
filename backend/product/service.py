@@ -727,10 +727,17 @@ async def list_available_jobs(
             "price_formula_base": calc_price_formula_base(
                 float(job.canvas_w_cm), float(job.canvas_h_cm), job.detail, job.num_colors_used
             ),
-            # picker 顯示用（短期 signed URL）
-            "preview_url": _public_filled_url(job.filled_template_url),
-            # 寫入 cover_image_url 永久欄位用（Firebase download URL）
-            "cover_url": _persistent_firebase_url(job.filled_template_url),
+            # picker 顯示用（短期 signed URL）— 優先用 finalize 後的「實體色版」
+            # （與塗色者真正畫出來顏色一致），fallback 到演算法量化版以相容未 finalize 的舊 job
+            "preview_url": _public_filled_url(
+                job.filled_template_final_url or job.filled_template_url
+            ),
+            # 寫入 cover_image_url 永久欄位用（Firebase download URL）— 同樣優先 final 版
+            "cover_url": _persistent_firebase_url(
+                job.filled_template_final_url or job.filled_template_url
+            ),
+            # 標示這個 job 是否已 finalize，UI 上可以顯示 badge 區分新舊
+            "is_finalized": job.filled_template_final_url is not None,
         }
         for job in jobs
     ]

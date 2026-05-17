@@ -58,7 +58,9 @@ function specSummary(j: AvailableJob): string {
   <Dialog :open="open" title="從製作任務選封面" size="lg" @close="$emit('close')">
     <div class="space-y-4">
       <p class="text-[12px] text-ink-muted">
-        從已通過審核且有 filled_template 的 production_job 挑一張當封面。
+        從已通過審核的 production_job 挑一張當封面。
+        <span class="text-state-success">「實體色」</span>標籤 = 已完成顏色對應、封面用對應後的物理色版本（更接近顏料畫出來的真實色彩）；
+        <span class="text-state-warning">「未對應」</span> = 仍是演算法量化色，建議先完成對應再選。
       </p>
 
       <div v-if="isLoading" class="py-12 flex justify-center text-ink-muted">
@@ -112,6 +114,17 @@ function specSummary(j: AvailableJob): string {
           >
             <Check :size="14" :stroke-width="2.25" />
           </span>
+          <!-- finalize badge：已 finalize 的封面用實體色版本，色彩更接近實物 -->
+          <span
+            v-if="j.is_finalized"
+            class="absolute top-2 left-2 px-1.5 py-0.5 text-[10px] tracking-[0.04em] rounded-[var(--radius-xs)] bg-state-success/90 text-paper-surface"
+            title="已對應完成 — 封面用實體色版本，與顏料畫出的色彩一致"
+          >實體色</span>
+          <span
+            v-else
+            class="absolute top-2 left-2 px-1.5 py-0.5 text-[10px] tracking-[0.04em] rounded-[var(--radius-xs)] bg-state-warning/80 text-paper-surface"
+            title="尚未對應完成 — 封面是演算法量化色，與真實顏料可能有色差"
+          >未對應</span>
           <span class="absolute bottom-0 inset-x-0 px-2 py-1 text-[11px] text-paper-surface bg-ink-strong/70 truncate">
             {{ specSummary(j) }}
           </span>
