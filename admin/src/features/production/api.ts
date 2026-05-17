@@ -98,6 +98,9 @@ export interface JobDetail extends JobListItem {
   template_final_url: string | null
   /** Finalize 後產出的色號對照表 JSON；給 PDF legend 與 admin 預覽用 */
   palette_final_url: string | null
+  /** Finalize 後產出的「實體色版」filled preview PNG（pixel-replaced from snapped_rgb）；
+   *  vs filled_template_url 是演算法量化色，這版是真實塗色後效果 */
+  filled_template_final_url: string | null
   finalized_at: string | null
   // F06-B 用：palette_mappings、sam_points、polygons、mask_url 等暫不入型別
 }

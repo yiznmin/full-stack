@@ -400,9 +400,26 @@ async def finalize_template(db: AsyncSession, job_id: UUID) -> dict:
     )
     palette_final_url = f"gs://{bucket.name}/{palette_final_path}"
 
-    # 7. 更新 job 欄位 + commit
+    # 7. 生成「實體色版」filled preview（pixel-replacement）— 若 snapped_rgb 存在
+    # snapped_rgb.png 是 pbn_gen 量化後的 raw RGB 圖（每個 pixel 是某個 algorithm
+    # template_id 的色）。把每個 algorithm RGB 換成對應物理色 RGB → 真實塗色預覽。
+    filled_template_final_url: str | None = None
+    if job.snapped_rgb_url:
+        try:
+            filled_template_final_url = await _generate_filled_final(
+                bucket, job, mapping_rows, colors_by_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            # best-effort：失敗只 log，其他 finalize 產物仍生效
+            logger.warning(
+                "filled_template_final generation failed for %s: %s", job_id, e,
+            )
+
+    # 8. 更新 job 欄位 + commit
     job.template_final_url = template_final_url
     job.palette_final_url = palette_final_url
+    if filled_template_final_url:
+        job.filled_template_final_url = filled_template_final_url
     job.finalized_at = datetime.now(UTC)
     await db.commit()
 
@@ -415,6 +432,73 @@ async def finalize_template(db: AsyncSession, job_id: UUID) -> dict:
         "template_final_url": template_final_url,
         "palette_final_url": palette_final_url,
     }
+
+
+async def _generate_filled_final(
+    bucket,
+    job: ProductionJob,
+    mapping_rows: list[PaletteColorMapping],
+    colors_by_id: dict[UUID, PhysicalColor],
+) -> str:
+    """以 snapped_rgb.png 為基底，把每個 algorithm RGB pixel 換成對應物理色 RGB。
+
+    回傳 Firebase gs:// URL；失敗會 raise，呼叫端用 try/except 視為 best-effort。
+
+    向量化作法（O(num_colors × pixels)，但 num_colors 通常 ≤ 50 所以實際很快）：
+      1. 讀 snapped_rgb 成 numpy (H, W, 3) uint8
+      2. 對每個 mapping，組 algorithm RGB → physical RGB 的對應
+      3. 用 np.all(img == alg, axis=-1) 找該色 pixel mask，整批替換
+    """
+    import io  # noqa: PLC0415
+
+    import numpy as np  # noqa: PLC0415
+    from PIL import Image  # noqa: PLC0415
+
+    # 1. 讀 snapped_rgb
+    snapped_path = _gs_path(job.snapped_rgb_url, bucket.name)
+    snapped_bytes = bucket.blob(snapped_path).download_as_bytes()
+    snapped_img = np.array(
+        Image.open(io.BytesIO(snapped_bytes)).convert("RGB"),
+        dtype=np.uint8,
+    )
+
+    # 2. 組 algorithm RGB tuple → physical RGB tuple
+    # palette_json 的 rgb 是 algorithm 量化色（與 snapped_rgb pixel 對齊）；
+    # mapping_rows 的 algorithm_rgb 也是同來源
+    alg_to_phys: dict[tuple[int, int, int], tuple[int, int, int]] = {}
+    for m in mapping_rows:
+        color = colors_by_id.get(m.physical_color_id)
+        if not color:
+            continue
+        alg_rgb = m.algorithm_rgb
+        if isinstance(alg_rgb, dict):
+            alg_t = (int(alg_rgb["r"]), int(alg_rgb["g"]), int(alg_rgb["b"]))
+        else:
+            alg_t = (int(alg_rgb[0]), int(alg_rgb[1]), int(alg_rgb[2]))
+        phys_t = (int(color.rgb[0]), int(color.rgb[1]), int(color.rgb[2]))
+        alg_to_phys[alg_t] = phys_t
+
+    if not alg_to_phys:
+        raise ValueError("mapping_rows 內無有效 algorithm→physical 對應")
+
+    # 3. 整批替換像素
+    output = snapped_img.copy()
+    for alg, phys in alg_to_phys.items():
+        if alg == phys:
+            continue  # 已相同，省略一次掃描
+        mask = np.all(snapped_img == np.array(alg, dtype=np.uint8), axis=-1)
+        output[mask] = phys
+
+    # 4. 編碼 PNG → 上傳
+    buf = io.BytesIO()
+    Image.fromarray(output, mode="RGB").save(buf, format="PNG", optimize=True)
+    filled_bytes = buf.getvalue()
+
+    filled_path = f"production_jobs/{job.id}/filled_template_final.png"
+    bucket.blob(filled_path).upload_from_string(
+        filled_bytes, content_type="image/png",
+    )
+    return f"gs://{bucket.name}/{filled_path}"
 
 
 def _gs_path(url: str, bucket_name: str) -> str:

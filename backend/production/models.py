@@ -99,6 +99,10 @@ class ProductionJob(Base):
     # 並存於 Firebase（不覆蓋 svg_url 演算法版），PDF 匯出優先用 final 版。
     template_final_url = Column(String, nullable=True)
     palette_final_url = Column(String, nullable=True)
+    # 「實體色版」filled preview：snapped_rgb 的每個 algorithm RGB pixel 替換成
+    # 對應 mapping 的物理色 RGB。給 admin 看真實塗色後效果（vs filled_template_url
+    # 是演算法量化色預覽）。
+    filled_template_final_url = Column(String, nullable=True)
     finalized_at = Column(TIMESTAMP(timezone=True), nullable=True)
     notes = Column(Text, nullable=True)
     batch_id = Column(UUID(as_uuid=True), nullable=True)

@@ -119,6 +119,7 @@ class JobDetailResponse(BaseModel):
     notes: str | None
     template_final_url: str | None = None
     palette_final_url: str | None = None
+    filled_template_final_url: str | None = None
     finalized_at: datetime | None = None
     created_at: datetime
     approved_at: datetime | None
@@ -137,6 +138,11 @@ class JobDetailResponse(BaseModel):
     @classmethod
     def _convert_template_final(cls, v: Any) -> Any:
         # gs:// → 15-min signed https URL（admin 預覽用）
+        return _resolve_filled_url(v)
+
+    @field_validator("filled_template_final_url", mode="before")
+    @classmethod
+    def _convert_filled_final(cls, v: Any) -> Any:
         return _resolve_filled_url(v)
 
 

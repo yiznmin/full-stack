@@ -129,6 +129,11 @@ async def init_schema() -> None:
                 "ALTER TABLE palette_color_mappings "
                 "ADD COLUMN IF NOT EXISTS output_label INTEGER"
             ))
+            # 實體色版 filled preview（finalize 後產出，給 admin 看真實塗色後效果）
+            await conn.execute(text(
+                "ALTER TABLE production_jobs "
+                "ADD COLUMN IF NOT EXISTS filled_template_final_url VARCHAR"
+            ))
 
             # Backfill：已有 shipment 的訂單視為「已確認出貨資訊」（之前無此欄位的歷史訂單）
             print("[init_db] backfilling shipping_locked for shipped orders ...", flush=True)

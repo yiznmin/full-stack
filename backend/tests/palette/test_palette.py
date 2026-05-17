@@ -733,6 +733,137 @@ async def test_finalize_idempotent(db):
 
 
 @pytest.mark.asyncio
+async def test_finalize_generates_filled_template_final_png(db):
+    """job.snapped_rgb_url 存在時，finalize 額外產出物理色版 filled preview PNG。
+
+    流程：讀 snapped_rgb.png → 每個 algorithm RGB pixel 替換為對應物理色 RGB
+    → 上傳 filled_template_final.png + 寫入 job.filled_template_final_url。
+    """
+    import io
+    from unittest.mock import MagicMock, patch
+
+    import numpy as np
+    from PIL import Image
+
+    from palette.service import finalize_template
+
+    # 用獨特的 RGB 確保替換可驗證（避免 algorithm 與 physical 同色）
+    custom_a = {**COLOR_A, "code": "FF-A", "rgb": [10, 20, 30]}
+    custom_b = {**COLOR_B, "code": "FF-B", "rgb": [40, 50, 60]}
+    await _create_color(db, custom_a)
+    await _create_color(db, custom_b)
+
+    # 用 _setup_job_for_finalize 建 job + mappings；但 PAL-001/PAL-002 不存在，自建
+    from palette.models import MappedByEnum, PaletteColorMapping
+    job = ProductionJob(
+        detail="standard", difficulty="beginner", mode="standard",
+        canvas_w_cm=30, canvas_h_cm=40,
+        status=JobStatusEnum.completed,
+        palette_json=_PALETTE_FOR_FINALIZE,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    job.svg_url = f"gs://test-bucket/production_jobs/{job.id}/template.svg"
+    job.snapped_rgb_url = f"gs://test-bucket/production_jobs/{job.id}/snapped_rgb.png"
+
+    pc_a = (await db.execute(select(PhysicalColor).where(PhysicalColor.code == "FF-A"))).scalar_one()
+    pc_b = (await db.execute(select(PhysicalColor).where(PhysicalColor.code == "FF-B"))).scalar_one()
+    # template 1, 3 → custom_a；template 2 → custom_b
+    for tid, color in [(1, pc_a), (2, pc_b), (3, pc_a)]:
+        # algorithm_rgb 必須跟 palette_json 同步（pixel-replacement 用這個 key 查 mapping）
+        alg_rgb = next(e for e in _PALETTE_FOR_FINALIZE if e["template_id"] == tid)["rgb"]
+        db.add(PaletteColorMapping(
+            production_job_id=job.id,
+            template_id=tid,
+            algorithm_rgb=alg_rgb,
+            physical_color_id=color.id,
+            mapped_by=MappedByEnum.system,
+        ))
+    await db.commit()
+
+    # 構造 mock snapped PNG：6 pixel，3 種 algorithm RGB
+    # row 0: [247,167,132] [100,50,200] [50,200,100]   (tid 1, 2, 3)
+    # row 1: 同上
+    snapped_data = np.array([
+        [[247, 167, 132], [100, 50, 200], [50, 200, 100]],
+        [[247, 167, 132], [100, 50, 200], [50, 200, 100]],
+    ], dtype=np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(snapped_data).save(buf, format="PNG")
+    snapped_png_bytes = buf.getvalue()
+
+    captured: dict[str, bytes] = {}
+    def make_blob(path: str):
+        b = MagicMock(name=f"blob:{path}")
+        if "snapped_rgb" in path:
+            b.download_as_bytes = MagicMock(return_value=snapped_png_bytes)
+        else:
+            b.download_as_bytes = MagicMock(return_value=_SVG_TEMPLATE)
+        def _upload(data, content_type=None):  # noqa: ARG001
+            captured[path] = data if isinstance(data, bytes) else data.encode("utf-8")
+        b.upload_from_string = MagicMock(side_effect=_upload)
+        return b
+
+    bucket = MagicMock()
+    bucket.name = "test-bucket"
+    bucket.blob = MagicMock(side_effect=make_blob)
+
+    with patch("core.firebase.get_bucket", return_value=bucket):
+        await finalize_template(db, job.id)
+
+    # 1. filled_template_final.png 應被上傳
+    filled_path = f"production_jobs/{job.id}/filled_template_final.png"
+    assert filled_path in captured, f"expected {filled_path} in {list(captured.keys())}"
+
+    # 2. job.filled_template_final_url 應該被寫入
+    await db.refresh(job)
+    assert job.filled_template_final_url is not None
+    assert job.filled_template_final_url.endswith("/filled_template_final.png")
+
+    # 3. PNG 內容：每個 pixel 都替換為對應物理色 RGB
+    out_img = np.array(Image.open(io.BytesIO(captured[filled_path])).convert("RGB"))
+    assert out_img.shape == (2, 3, 3)
+    # column 0: algorithm [247,167,132] → tid 1 → physical [10,20,30]
+    assert tuple(out_img[0, 0]) == (10, 20, 30)
+    assert tuple(out_img[1, 0]) == (10, 20, 30)
+    # column 1: algorithm [100,50,200] → tid 2 → physical [40,50,60]
+    assert tuple(out_img[0, 1]) == (40, 50, 60)
+    assert tuple(out_img[1, 1]) == (40, 50, 60)
+    # column 2: algorithm [50,200,100] → tid 3 → physical [10,20,30]（同 tid 1）
+    assert tuple(out_img[0, 2]) == (10, 20, 30)
+    assert tuple(out_img[1, 2]) == (10, 20, 30)
+
+
+@pytest.mark.asyncio
+async def test_finalize_skips_filled_final_when_no_snapped_url(db):
+    """job.snapped_rgb_url=None → 不產 filled_template_final.png（best-effort skip）。
+    其他 finalize 產物（template_final.svg、palette_final.json）正常產生。"""
+    from unittest.mock import patch
+    from palette.service import finalize_template
+    await _create_color(db, COLOR_A)
+    await _create_color(db, COLOR_B)
+    job = await _setup_job_for_finalize(db, [(1, "PAL-001"), (2, "PAL-002"), (3, "PAL-001")])
+    # _setup_job_for_finalize 沒設 snapped_rgb_url
+
+    bucket, captured = _mock_bucket_for_finalize()
+    with patch("core.firebase.get_bucket", return_value=bucket):
+        await finalize_template(db, job.id)
+
+    # filled_template_final.png 不應該被上傳
+    filled_path = f"production_jobs/{job.id}/filled_template_final.png"
+    assert filled_path not in captured
+
+    # 但其他 final 產物正常
+    assert f"production_jobs/{job.id}/template_final.svg" in captured
+    assert f"production_jobs/{job.id}/palette_final.json" in captured
+
+    await db.refresh(job)
+    assert job.filled_template_final_url is None
+    assert job.template_final_url is not None
+
+
+@pytest.mark.asyncio
 async def test_finalize_no_svg_url_raises(db):
     """job.svg_url=None → BadRequestError（呼叫端 complete_mappings 會吞掉）。"""
     from palette.service import finalize_template
